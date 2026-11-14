@@ -2,9 +2,9 @@ import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } 
 import { NavLink, Route, Routes, useNavigate } from 'react-router-dom'
 import {
   Activity, Archive, Bell, Building2, CalendarDays, Check, ChevronLeft, ClipboardList,
-  FileUp, GraduationCap, HeartPulse, History, Home, Languages, LogOut, Menu,
+  Dumbbell, FileUp, GraduationCap, HeartPulse, History, Home, Languages, LogOut, Menu,
   MessageCircle, Mic, NotebookPen, Paperclip, Pencil, Plus, Search, Send,
-  Settings as SettingsIcon, ShieldCheck, Square, Trash2, UserPlus, Users, X,
+  Settings as SettingsIcon, ShieldCheck, Square, Trash2, Trophy, UserPlus, Users, X, Zap,
   type LucideIcon,
 } from 'lucide-react'
 import type { Session } from '@supabase/supabase-js'
@@ -318,7 +318,7 @@ export default function App() {
   }
 
   if (busy) {
-    return <div className="loading-screen"><div className="brand-mark">T</div><p>{t('loading')}</p></div>
+    return <div className="loading-screen"><BrandMark /><p>{t('loading')}</p></div>
   }
 
   if (!isLocalMode) {
@@ -367,7 +367,7 @@ export default function App() {
           {menu ? <X /> : <Menu />}
         </button>
         <div className="brand">
-          <div className="brand-mark">T</div>
+          <BrandMark />
           <div className="app-name">
             <span className="arabic">{t('app')}</span>
             <span className="latin">{t('subtitle')}</span>
@@ -425,6 +425,19 @@ export default function App() {
           </Routes>
         </main>
       </div>
+      {menu && <div className="scrim" onClick={() => setMenu(false)} aria-hidden="true" />}
+      <nav className="bottom-nav" aria-label="Primary">
+        {navItems.slice(0, 4).map(([to, Icon, key]) => (
+          <NavLink end={to === '/'} to={to} key={`bottom-${to}`} onClick={() => setMenu(false)}>
+            <Icon size={22} />
+            <span>{t(key)}</span>
+          </NavLink>
+        ))}
+        <button type="button" onClick={() => setMenu((v) => !v)} aria-label={t('more')}>
+          <Menu size={22} />
+          <span>{t('more')}</span>
+        </button>
+      </nav>
       {toast && <div className="toast" role="status" onClick={() => setToast('')}>{toast}</div>}
     </div>
   )
@@ -455,7 +468,7 @@ function RecoveryScreen({ mode, t, onDone, onSignOut }: {
     <div className="login-wrap">
       <section className="login-card">
         <div className="login-brand">
-          <div className="brand-mark big">T</div>
+          <BrandMark big />
           <h1 className="app-name">
             <span className="arabic">{t('app')}</span>
             <span className="latin">{t('subtitle')}</span>
@@ -514,9 +527,22 @@ function Login({ lang, setLang, t }: { lang: Lang; setLang: (v: Lang) => void; t
 
   return (
     <div className="login-wrap">
+      <div className="login-stage">
+        <aside className="login-hero">
+          <div>
+            <span className="eyebrow">{t('app')} · {t('subtitle')}</span>
+            <h2>{t('heroTitle')}</h2>
+            <p>{t('heroSub')}</p>
+          </div>
+          <div className="value-chips">
+            <span className="value-chip"><Dumbbell size={16} /> {t('valueStrength')}</span>
+            <span className="value-chip"><Zap size={16} /> {t('valueSpeed')}</span>
+            <span className="value-chip"><Trophy size={16} /> {t('valueTraining')}</span>
+          </div>
+        </aside>
       <section className="login-card">
         <div className="login-brand">
-          <div className="brand-mark big">T</div>
+          <BrandMark big />
           <h1 className="app-name">
             <span className="arabic">{t('app')}</span>
             <span className="latin">{t('subtitle')}</span>
@@ -567,6 +593,7 @@ function Login({ lang, setLang, t }: { lang: Lang; setLang: (v: Lang) => void; t
         )}
         <small className="secure-note"><ShieldCheck size={14} /> {t('secureAccess')}</small>
       </section>
+      </div>
     </div>
   )
 }
@@ -581,7 +608,7 @@ function GateScreen({ state, t, onRetry, onSignOut }: {
     <div className="login-wrap">
       <section className="login-card">
         <div className="login-brand">
-          <div className="brand-mark big">T</div>
+          <BrandMark big />
           <h1 className="app-name">
             <span className="arabic">{t('app')}</span>
             <span className="latin">{t('subtitle')}</span>
@@ -594,6 +621,15 @@ function GateScreen({ state, t, onRetry, onSignOut }: {
         )}
         <button className="secondary full" onClick={onSignOut}>{t('logout')}</button>
       </section>
+    </div>
+  )
+}
+
+/** Brand symbol: a lightning bolt on a slanted volt block (strength + speed). */
+function BrandMark({ big }: { big?: boolean }) {
+  return (
+    <div className={`brand-mark${big ? ' big' : ''}`} aria-hidden="true">
+      <Zap size={big ? 36 : 22} strokeWidth={2.6} />
     </div>
   )
 }
@@ -668,7 +704,17 @@ function Dashboard({ profile, t }: { profile: Profile; t: T }) {
 
   return (
     <>
-      <Heading title={t('home')} subtitle={`${t('welcome')} · ${profile.full_name || profile.email || t('offline')}`} />
+      <section className="dash-hero">
+        <span className="eyebrow">{t('today')} · {localDate()}</span>
+        <h1>{t('welcome')} {profile.full_name || profile.email || t('offline')}</h1>
+        <p>{t('heroSub')}</p>
+        <div className="hero-tags">
+          <span className="hero-tag"><ShieldCheck size={14} /> {roleLabel(profile.role, t)}</span>
+          <span className="hero-tag"><Dumbbell size={14} /> {t('valueStrength')}</span>
+          <span className="hero-tag"><Zap size={14} /> {t('valueSpeed')}</span>
+          <span className="hero-tag"><Trophy size={14} /> {t('valueTraining')}</span>
+        </div>
+      </section>
       {errorKey && <div className="error-box">{t(errorKey)}</div>}
       <div className="stats-grid">
         <Stat icon={Users} label={t('statsStudents')} value={stats.students} />
