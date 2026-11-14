@@ -2573,7 +2573,7 @@ function ClassManagement({ profile, t }: { profile: Profile; t: T }) {
       {editingClass && (
         <section className="panel">
           <h3>{t('classEdit')}</h3>
-          <form onSubmit={(e) => update(e, edittingClass.id)}>
+          <form onSubmit={(e) => update(e, editingClass.id)}>
             <input defaultValue={editingClass.name} readOnly />
             <label>{t('academicYear')}<input defaultValue={editingClass.academic_year} /></label>
             <label>{t('description')}<textarea defaultValue={editingClass.description} /></label>
