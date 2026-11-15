@@ -38,6 +38,7 @@ type Profile = {
   institution_id: string | null
   account_status: string
   preferred_language: Lang
+  avatar_path?: string | null
 }
 type T = (key: string) => string
 type Student = {
@@ -58,7 +59,6 @@ type Person = {
   created_at?: string
 }
 type AccountRow = Profile & {
-  avatar_path?: string | null
   created_at?: string
   approved_by?: string | null
   approved_at?: string | null
@@ -2472,25 +2472,17 @@ function OwnerAccountRow({ person, institutions, t, onChanged }: {
   const [role, setRole] = useState<AccountRole>(initialRole)
   const [institutionId, setInstitutionId] = useState(person.institution_id ?? '')
   const [busy, setBusy] = useState(false)
-  const [avatarPath, setAvatarPath] = useState(person.avatar_path || '')
-  const [avatarUrl, setAvatarUrl] = useState('')
+  const [avatarPath, setAvatarPath] = useState<string | null>(null)
+  const [avatarSignedUrl, setAvatarSignedUrl] = useState<string | null>(null)
   const isOwnerAccount = person.role === 'owner'
   const status = person.account_status || 'pending'
 
   useEffect(() => {
     setRole(isAccountRole(person.role) ? person.role : 'coach')
     setInstitutionId(person.institution_id ?? '')
-    setAvatarPath(person.avatar_path || '')
-  }, [person.role, person.institution_id, person.avatar_path])
-
-  useEffect(() => {
-    let alive = true
-    if (!isConfigured || !avatarPath) { setAvatarUrl(''); return }
-    void supabase.storage.from('trainer-avatars').createSignedUrl(avatarPath, 3600).then(({ data }) => {
-      if (alive) setAvatarUrl(data?.signedUrl || '')
-    })
-    return () => { alive = false }
-  }, [avatarPath])
+    setAvatarPath(person.avatar_path || null)
+    setAvatarSignedUrl(null)
+  }, [person.role, person.institution_id, person.avatar_path, person.id])
 
   async function run(action: 'approve' | 'reject' | 'suspend' | 'reactivate' | 'update') {
     if (busy || isOwnerAccount) return
@@ -2524,6 +2516,9 @@ function OwnerAccountRow({ person, institutions, t, onChanged }: {
       .from('trainer-avatars')
       .upload(avatar_path, file, { upsert: false, contentType: file.type })
     if (uploadError) { notify(uploadError.message); setBusy(false); return }
+    const { data } = await supabase.storage.from('trainer-avatars').createSignedUrl(avatar_path, 3600)
+    if (!data?.signedUrl) { notify(t('savedOk')); setBusy(false); return }
+    setAvatarSignedUrl(data.signedUrl)
     setAvatarPath(avatar_path)
     const { error: updateError } = await supabase.from('profiles').update({ avatar_path }).eq('id', person.id)
     if (updateError) { notify(updateError.message); setBusy(false); return }
@@ -2535,25 +2530,17 @@ function OwnerAccountRow({ person, institutions, t, onChanged }: {
   return (
     <div className="student-row">
       <div className="avatar">
-        {avatarUrl ? (
-          <img src={avatarUrl} alt={person.full_name || 'avatar'} className="avatar-img" />
+        {avatarPath ? (
+          <img src={avatarSignedUrl || avatarPath || ''} alt={person.full_name || 'avatar'} className="avatar-img" />
         ) : (
           <span>{(person.full_name || person.email || '?').slice(0, 1)}</span>
         )}
-        {person.institution_id && (
-          <>
-            <input
-              id={`avatar-upload-${person.id}`}
-              type="file"
-              accept="image/png,image/jpeg,image/webp"
-              style={{ display: 'none' }}
-              onChange={(e) => { void uploadAvatar(e) }}
-            />
-            <button type="button" className="avatar-upload-btn" disabled={busy} onClick={() => document.getElementById(`avatar-upload-${person.id}`)?.click()}>
-              {t('changeAvatar')}
-            </button>
-          </>
+        {avatarPath && (
+          <button type="button" className="avatar-upload-btn" onClick={() => document.getElementById(`avatar-upload-${person.id}`)?.click()}>
+            {t('changeAvatar')}
+          </button>
         )}
+        <input type="file" accept="image/png,image/jpeg,image/webp" id={`avatar-upload-${person.id}`} onChange={uploadAvatar} hidden />
       </div>
       <div className="grow">
         <b>{person.full_name || person.email || '—'}</b>
