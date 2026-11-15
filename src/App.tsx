@@ -585,9 +585,9 @@ function Login({ lang, setLang, t }: { lang: Lang; setLang: (v: Lang) => void; t
       <section className="login-card">
         <div className="login-brand">
           <div className="brand-mark big">T</div>
-          <h1 className="app-name">
-            <span className="arabic">{t('app')}</span>
-            <span className="latin">{t('subtitle')}</span>
+          <h1 className="app-name" style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '16px' }}>
+            <span className="arabic" style={{ fontFamily: 'var(--arabic-font),system-ui,sans-serif', fontSize: '17px', fontWeight: 600, letterSpacing: '.01em', color: '#f5f5f5' }}>{t('app')}</span>
+            <span className="latin" style={{ fontFamily: 'var(--latin-font),system-ui,sans-serif', fontSize: '11px', color: '#a8c6c2' }}>{t('subtitle')}</span>
           </h1>
         </div>
         <div className="login-lang">
@@ -2477,7 +2477,8 @@ function OwnerAccountRow({ person, institutions, t, onChanged }: {
   useEffect(() => {
     setRole(isAccountRole(person.role) ? person.role : 'coach')
     setInstitutionId(person.institution_id ?? '')
-  }, [person.role, person.institution_id])
+    setAvatarPath(person.avatar_path || '')
+  }, [person.role, person.institution_id, person.avatar_path])
 
   async function run(action: 'approve' | 'reject' | 'suspend' | 'reactivate' | 'update') {
     if (busy || isOwnerAccount) return
@@ -2500,9 +2501,40 @@ function OwnerAccountRow({ person, institutions, t, onChanged }: {
     onChanged()
   }
 
+  async function uploadAvatar(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (!/image\/(png|jpe?g|webp)/.test(file.type)) { notify(t('invalidImage')); return }
+    setBusy(true)
+    const extension = file.name.split('.').pop() || 'png'
+    const avatar_path = `${person.institution_id}/${person.id}/avatar-${Date.now()}.${extension}`
+    const { error: uploadError } = await supabase.storage
+      .from('trainer-avatars')
+      .upload(avatar_path, file, { upsert: false, contentType: file.type })
+    if (uploadError) { notify(uploadError.message); setBusy(false); return }
+    const { data } = await supabase.storage.from('trainer-avatars').createSignedUrl(avatar_path, 3600)
+    setAvatarPath(avatar_path)
+    const { error: updateError } = await supabase.from('profiles').update({ avatar_path }).eq('id', person.id)
+    if (updateError) { notify(updateError.message); setBusy(false); return }
+    notify(t('savedOk'))
+    setBusy(false)
+    e.target.value = ''
+  }
+
   return (
     <div className="student-row">
-      <div className="avatar">{(person.full_name || person.email || '?').slice(0, 1)}</div>
+      <div className="avatar">
+        {avatarPath ? (
+          <img src={avatarPath?.signedUrl || ''} alt={person.full_name || 'avatar'} className="avatar-img" />
+        ) : (
+          {(person.full_name || person.email || '?').slice(0, 1)}
+        )}
+        {avatarPath && (
+          <button className="avatar-upload-btn" onClick={() => document.getElementById(`avatar-upload-${person.id}`)?.click()}>
+            {t('changeAvatar')}
+          </button>
+        )}
+      </div>
       <div className="grow">
         <b>{person.full_name || person.email || '—'}</b>
         <small>{person.email} · {t(person.role || 'coach')}</small>

@@ -12,6 +12,11 @@
 //
 // The snapshot is deliberately boring: plain JSON, versioned, expiring, and it
 // never throws when storage is unavailable (private mode, quota, SSR).
+//
+// Word Template Integration: When exporting a report to Word, the system checks
+// for an institution-specific report template (.docx). If available, it uses the
+// template's structure to format the report data. If no template is set, a
+// basic structured export is provided.
 
 export type ReportCounts = {
   present_count: number;

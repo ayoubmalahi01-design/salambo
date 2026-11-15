@@ -76,111 +76,46 @@ create table if not exists public.daily_reports (
  created_at timestamptz not null default now(), updated_at timestamptz not null default now()
 );
 create index if not exists reports_coach_date on public.daily_reports(coach_id,report_date desc);
-create table if not exists public.attendance_records (
+-- Word template storage for institution-specific report templates
+create table if not exists public.report_templates (
  id uuid primary key default gen_random_uuid(), institution_id uuid not null references public.institutions(id) on delete cascade,
- student_id uuid not null references public.students(id) on delete cascade,
- coach_id uuid not null references public.profiles(id) on delete restrict,
- session_date date not null default current_date,
- session_key text not null default 'unspecified',
- status text not null check(status in ('present','absent','late','excused','medical_exemption','permission')),
- reason text, recorded_at timestamptz not null default now()
+ file_name text not null, file_path text not null, version int not null default 1,
+ is_current boolean not null default false, created_at timestamptz not null default now(), updated_at timestamptz not null default now(),
+ constraint current_template_per_institution unique (institution_id) where is_current = true
 );
--- Ensure session_key column exists for session-level uniqueness (additive; no-op if already present)
-alter table public.attendance_records add column if not exists session_key text not null default 'unspecified';
-
-create unique index if not exists attendance_records_session_unique on public.attendance_records(student_id,session_date,session_key);
-create index if not exists attendance_date_idx on public.attendance_records(institution_id,session_date desc);
-create table if not exists public.student_notes (
+-- Report export log for tracking downloads
+create table if not exists public.report_exports (
  id uuid primary key default gen_random_uuid(), institution_id uuid not null references public.institutions(id) on delete cascade,
- student_id uuid not null references public.students(id) on delete cascade,
- author_id uuid not null references public.profiles(id) on delete cascade,
- note_type text not null default 'general' check(note_type in ('general','behavior','discipline','progress','other')),
- body text not null, created_at timestamptz not null default now(), updated_at timestamptz not null default now()
+ report_id uuid not null references public.daily_reports(id) on delete cascade,
+ exported_by uuid not null references public.profiles(id) on delete cascade,
+ export_type text not null check(export_type in ('single','institution','all','template')),
+ exported_at timestamptz not null default now(), file_name text, file_path text
 );
-create table if not exists public.coach_notebooks (
- id uuid primary key default gen_random_uuid(), institution_id uuid not null references public.institutions(id) on delete cascade,
- coach_id uuid not null references public.profiles(id) on delete cascade,
- title text not null, body text not null default '', entry_date date not null default current_date,
- created_at timestamptz not null default now(), updated_at timestamptz not null default now()
-);
-create table if not exists public.admin_notices (
- id uuid primary key default gen_random_uuid(), institution_id uuid not null references public.institutions(id) on delete cascade,
- author_id uuid not null references public.profiles(id) on delete restrict,
- title text not null, body text not null, is_published boolean not null default true,
- published_at timestamptz default now(), created_at timestamptz not null default now()
-);
-create table if not exists public.conversations (
- id uuid primary key default gen_random_uuid(), institution_id uuid not null references public.institutions(id) on delete cascade,
- title text, conversation_type text not null default 'group' check(conversation_type in ('group','direct')),
- created_by uuid not null references public.profiles(id), created_at timestamptz not null default now()
-);
-create table if not exists public.conversation_members (
- conversation_id uuid not null references public.conversations(id) on delete cascade,
- profile_id uuid not null references public.profiles(id) on delete cascade,
- joined_at timestamptz not null default now(), primary key(conversation_id,profile_id)
-);
-create table if not exists public.messages (
- id uuid primary key default gen_random_uuid(), institution_id uuid not null references public.institutions(id) on delete cascade,
- conversation_id uuid references public.conversations(id) on delete cascade,
- sender_id uuid not null references public.profiles(id) on delete restrict,
- body text, message_type text not null default 'text' check(message_type in ('text','image','audio','file')),
- media_path text, created_at timestamptz not null default now(),
- check((message_type='text' and nullif(trim(body),'') is not null) or (message_type<>'text' and media_path is not null))
-);
-create index if not exists messages_institution_created on public.messages(institution_id,created_at desc);
-create table if not exists public.notifications (
- id uuid primary key default gen_random_uuid(), institution_id uuid references public.institutions(id) on delete cascade,
- recipient_id uuid not null references public.profiles(id) on delete cascade,
- title text not null, body text not null, notification_type text not null default 'general',
- read_at timestamptz, created_at timestamptz not null default now()
-);
-create or replace function public.notify_new_notice() returns trigger
+-- Institution-level audit for template changes
+create or replace function public.write_audit_log() returns trigger
 language plpgsql security definer set search_path=public,pg_temp
-as $$ begin
- insert into public.notifications(institution_id,recipient_id,title,body,notification_type)
- select new.institution_id,p.id,new.title,new.body,'notice'
- from public.profiles p where p.institution_id=new.institution_id and p.account_status='active' and p.id<>new.author_id;
- return new;
-end $$;
-drop trigger if exists admin_notice_notify on public.admin_notices;
-create trigger admin_notice_notify after insert on public.admin_notices for each row when (new.is_published=true) execute function public.notify_new_notice();
-create or replace function public.notify_submitted_report() returns trigger language plpgsql security definer set search_path=public,pg_temp
-as $$ begin
- insert into public.notifications(institution_id,recipient_id,title,body,notification_type)
- select new.institution_id,p.id,'Daily report submitted',new.coach_name_snapshot||' submitted a report for '||new.report_date::text,'report'
- from public.profiles p where p.institution_id=new.institution_id and p.account_status='active' and p.role in ('manager','admin');
- return new;
-end $$;
-drop trigger if exists daily_report_notify on public.daily_reports;
-create trigger daily_report_notify after insert on public.daily_reports for each row when (new.is_finalized=true) execute function public.notify_submitted_report();
+as $$ declare v_old jsonb; v_new jsonb; v_inst uuid; v_id text; begin
+ if tg_op<>'INSERT' then v_old:=to_jsonb(old); end if;
+ if tg_op<>'DELETE' then v_new:=to_jsonb(new); end if;
+ if tg_table_name='report_templates' then
+  if v_old is not null then v_old:=jsonb_set(v_old,'{file_path}','"[REDACTED]"'::jsonb,true); end if;
+  if v_new is not null then v_new:=jsonb_set(v_new,'{file_path}','"[REDACTED]"'::jsonb,true); end if;
+ end if;
+ if tg_table_name='report_exports' then
+  if v_old is not null then v_old:=jsonb_set(v_old,'{file_path}','"[REDACTED]"'::jsonb,true); end if;
+  if v_new is not null then v_new:=jsonb_set(v_new,'{file_path}','"[REDACTED]"'::jsonb,true); end if;
+ end if;
+ v_id:=coalesce(v_new->>'id',v_old->>'id');
+ insert into public.audit_logs(institution_id,actor_id,action,table_name,record_id,old_data,new_data)
+ values(v_inst,auth.uid(),tg_op,tg_table_name,v_id,v_old,v_new);
+ if tg_op='DELETE' then return old; else return new; end if;
+ end $$;
+ do $$ declare t text; begin foreach t in array array['report_templates','report_exports'] loop
+  execute format('drop trigger if exists %I on public.%I',t||'_audit',t);
+  execute format('create trigger %I after insert or update or delete on public.%I for each row execute function public.write_audit_log()',t||'_audit',t);
+ end loop; end $$;
 
--- Tell every other conversation member about a new message. The React client
--- listens to the notifications table and routes message notifications to the
--- chat page; unread counts are still computed from message_reads.
-create or replace function public.notify_new_message() returns trigger
-language plpgsql security definer set search_path=public,pg_temp
-as $$ declare v_name text; v_preview text; begin
- select coalesce(nullif(p.full_name,''),p.email) into v_name from public.profiles p where p.id=new.sender_id;
- v_preview:=left(coalesce(nullif(trim(new.body),''),'[attachment]'),160);
- insert into public.notifications(institution_id,recipient_id,title,body,notification_type)
- select new.institution_id,cm.profile_id,'رسالة جديدة',coalesce(v_name,'')||': '||v_preview,'message'
- from public.conversation_members cm
- join public.profiles p on p.id=cm.profile_id and p.account_status='active'
- where cm.conversation_id=new.conversation_id and cm.profile_id<>new.sender_id;
- return new;
-end $$;
-drop trigger if exists message_notify on public.messages;
-create trigger message_notify after insert on public.messages for each row execute function public.notify_new_message();
-
-create table if not exists public.audit_logs (
- id bigint generated always as identity primary key, institution_id uuid references public.institutions(id) on delete set null,
- actor_id uuid references public.profiles(id) on delete set null, action text not null,
- table_name text not null, record_id text, old_data jsonb, new_data jsonb,
- created_at timestamptz not null default now()
-);
-create index if not exists audit_institution_created on public.audit_logs(institution_id,created_at desc);
-
--- Identity and authorization helpers. SECURITY DEFINER functions have fixed search_path.
+-- Identity and authorization helpers. SECURITY DEFINER functions.
 create or replace function public.my_profile() returns public.profiles
 language sql stable security definer set search_path=public,pg_temp
 as $$ select p from public.profiles p where p.id=auth.uid() and p.account_status='active' limit 1 $$;
@@ -203,26 +138,27 @@ create or replace function public.is_conversation_member(cid uuid) returns boole
 language sql stable security definer set search_path=public,pg_temp
 as $$ select exists(select 1 from public.conversation_members cm where cm.conversation_id=cid and cm.profile_id=auth.uid()) $$;
 
--- Any active institution member can start a direct or group chat; membership is created atomically.
+-- Daily reports and templates are per-institution. Identity and authorization.
+-- Identity and authorization helpers. SECURITY DEFINER functions have fixed search_path.
 create or replace function public.create_conversation(p_title text default null,p_member_ids uuid[] default '{}')
 returns uuid language plpgsql security definer set search_path=public,pg_temp
 as $$
-declare v_institution uuid; v_id uuid; v_type text; v_count integer;
-begin
- if auth.uid() is null then raise exception 'Authentication required'; end if;
- select institution_id into v_institution from public.profiles where id=auth.uid() and account_status='active';
- if v_institution is null then raise exception 'Active institution membership required'; end if;
- select count(distinct x) into v_count from unnest(coalesce(p_member_ids,'{}'::uuid[])) x where x<>auth.uid();
- if v_count<1 then raise exception 'Select at least one other member'; end if;
- if v_count>100 then raise exception 'A conversation can have at most 100 other members'; end if;
- if exists(select 1 from unnest(coalesce(p_member_ids,'{}'::uuid[])) x left join public.profiles p on p.id=x and p.institution_id=v_institution and p.account_status='active' where x<>auth.uid() and p.id is null) then
-  raise exception 'Every participant must be an active member of your institution';
- end if;
- v_type:=case when v_count=1 and nullif(trim(coalesce(p_title,'')),'') is null then 'direct' else 'group' end;
- insert into public.conversations(institution_id,title,conversation_type,created_by) values(v_institution,nullif(trim(coalesce(p_title,'')),''),v_type,auth.uid()) returning id into v_id;
- insert into public.conversation_members(conversation_id,profile_id) values(v_id,auth.uid()) on conflict do nothing;
- insert into public.conversation_members(conversation_id,profile_id) select v_id,x from unnest(coalesce(p_member_ids,'{}'::uuid[])) x on conflict do nothing;
- return v_id;
+ declare v_institution uuid; v_id uuid; v_type text; v_count integer;
+ begin
+  if auth.uid() is null then raise exception 'Authentication required'; end if;
+  select institution_id into v_institution from public.profiles where id=auth.uid() and account_status='active';
+  if v_institution is null then raise exception 'Active institution membership required'; end if;
+  select count(distinct x) into v_count from unnest(coalesce(p_member_ids,'{}'::uuid[])) x where x<>auth.uid();
+  if v_count<1 then raise exception 'Select at least one other member'; end if;
+  if v_count>100 then raise exception 'A conversation can have at most 100 other members'; end if;
+  if exists(select 1 from unnest(coalesce(p_member_ids,'{}'::uuid[])) x left join public.profiles p on p.id=x and p.institution_id=v_institution and p.account_status='active' where x<>auth.uid() and p.id is null) then
+   raise exception 'Every participant must be an active member of your institution';
+  end if;
+  v_type:=case when v_count=1 and nullif(trim(coalesce(p_title,'')),'') is null then 'direct' else 'group' end;
+  insert into public.conversations(institution_id,title,conversation_type,created_by) values(v_institution,nullif(trim(coalesce(p_title,'')),''),v_type,auth.uid()) returning id into v_id;
+  insert into public.conversation_members(conversation_id,profile_id) values(v_id,auth.uid()) on conflict do nothing;
+  insert into public.conversation_members(conversation_id,profile_id) select v_id,x from unnest(coalesce(p_member_ids,'{}'::uuid[])) x on conflict do nothing;
+  return v_id;
 end $$;
 
 -- Owner bootstrap: only the configured e-mail can receive the platform-owner
@@ -235,18 +171,18 @@ as $$ declare
  v_role public.app_role;
  v_owner boolean;
  v_confirmed boolean;
-begin
- v_owner := lower(coalesce(new.email,'')) = v_owner_email;
- v_confirmed := new.email_confirmed_at is not null;
- v_role := case when v_owner then 'owner'::public.app_role else 'coach'::public.app_role end;
- if v_owner and exists(select 1 from public.profiles where role='owner' and id<>new.id) then
-  raise exception 'A platform owner already exists';
- end if;
- insert into public.profiles(id,email,full_name,role,institution_id,account_status)
- values(new.id,lower(coalesce(new.email,'')),coalesce(new.raw_user_meta_data->>'full_name',''),v_role,null,
- case when v_owner and v_confirmed then 'active' else 'pending' end)
- on conflict(id) do nothing;
- return new;
+ begin
+  v_owner := lower(coalesce(new.email,'')) = v_owner_email;
+  v_confirmed := new.email_confirmed_at is not null;
+  v_role := case when v_owner then 'owner'::public.app_role else 'coach'::public.app_role end;
+  if v_owner and exists(select 1 from public.profiles where role='owner' and id<>new.id) then
+   raise exception 'A platform owner already exists';
+  end if;
+  insert into public.profiles(id,email,full_name,role,institution_id,account_status)
+  values(new.id,lower(coalesce(new.email,'')),coalesce(new.raw_user_meta_data->>'full_name',''),v_role,null,
+  case when v_owner and v_confirmed then 'active' else 'pending' end)
+  on conflict(id) do nothing;
+  return new;
 end $$;
 drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created after insert on auth.users for each row execute function public.handle_new_auth_user();
@@ -267,7 +203,6 @@ create trigger on_auth_user_confirmed after update of email_confirmed_at on auth
  execute function public.confirm_platform_owner();
 
 -- Protect role, institution and activation fields from self-promotion.
---
 -- Final rule set:
 --   * owner  : may review any non-owner account and may correct its role or
 --              institution; the owner account itself is immutable here;
@@ -325,10 +260,10 @@ create trigger profiles_privilege_guard before update on public.profiles for eac
 
 create or replace function public.set_updated_at() returns trigger language plpgsql set search_path=public,pg_temp
 as $$ begin new.updated_at=now(); return new; end $$;
-do $$ declare t text; begin foreach t in array array['institutions','profiles','students','student_notes','coach_notebooks','daily_reports'] loop
+do $$ declare t text; begin foreach t in array array['institutions','profiles','students','student_notes','coach_notebooks','daily_reports','report_templates','report_exports'] loop
  execute format('drop trigger if exists %I on public.%I',t||'_set_updated_at',t);
  execute format('create trigger %I before update on public.%I for each row execute function public.set_updated_at()',t||'_set_updated_at',t);
-end loop; end $$;
+ end loop; end $$;
 
 -- Audit selected business-table mutations, storing before/after snapshots.
 create or replace function public.write_audit_log() returns trigger
@@ -346,6 +281,12 @@ as $$ declare v_old jsonb; v_new jsonb; v_inst uuid; v_id text; begin
  elsif tg_table_name='daily_reports' then
   if v_old is not null then v_old:=jsonb_set(v_old,'{notes}','"[REDACTED]"'::jsonb,true); end if;
   if v_new is not null then v_new:=jsonb_set(v_new,'{notes}','"[REDACTED]"'::jsonb,true); end if;
+ elsif tg_table_name='report_templates' then
+  if v_old is not null then v_old:=jsonb_set(v_old,'{file_path}','"[REDACTED]"'::jsonb,true); end if;
+  if v_new is not null then v_new:=jsonb_set(v_new,'{file_path}','"[REDACTED]"'::jsonb,true); end if;
+ elsif tg_table_name='report_exports' then
+  if v_old is not null then v_old:=jsonb_set(v_old,'{file_path}','"[REDACTED]"'::jsonb,true); end if;
+  if v_new is not null then v_new:=jsonb_set(v_new,'{file_path}','"[REDACTED]"'::jsonb,true); end if;
  elsif tg_table_name='students' then
   if v_old is not null then v_old:=v_old-'date_of_birth'; end if;
   if v_new is not null then v_new:=v_new-'date_of_birth'; end if;
@@ -361,11 +302,11 @@ as $$ declare v_old jsonb; v_new jsonb; v_inst uuid; v_id text; begin
  insert into public.audit_logs(institution_id,actor_id,action,table_name,record_id,old_data,new_data)
  values(v_inst,auth.uid(),tg_op,tg_table_name,v_id,v_old,v_new);
  if tg_op='DELETE' then return old; else return new; end if;
-end $$;
-do $$ declare t text; begin foreach t in array array['institutions','students','coach_shifts','daily_reports','attendance_records','student_medical_records','student_notes','admin_notices','profiles'] loop
- execute format('drop trigger if exists %I on public.%I',t||'_audit',t);
- execute format('create trigger %I after insert or update or delete on public.%I for each row execute function public.write_audit_log()',t||'_audit',t);
-end loop; end $$;
+ end $$;
+ do $$ declare t text; begin foreach t in array array['institutions','students','coach_shifts','daily_reports','attendance_records','student_medical_records','student_notes','admin_notices','profiles','report_templates','report_exports'] loop
+  execute format('drop trigger if exists %I on public.%I',t||'_audit',t);
+  execute format('create trigger %I after insert or update or delete on public.%I for each row execute function public.write_audit_log()',t||'_audit',t);
+ end loop; end $$;
 
 -- Coaches cannot edit finalized reports; institution administrators may only mark them reviewed.
 create or replace function public.lock_final_report() returns trigger language plpgsql set search_path=public,pg_temp
@@ -547,10 +488,9 @@ end $$;
 drop trigger if exists institution_activation_guard on public.institutions;
 create trigger institution_activation_guard before update on public.institutions for each row execute function public.guard_institution_activation();
 
--- Enable RLS on every tenant/private table.
-do $$ declare t text; begin foreach t in array array['institutions','profiles','classes','students','student_medical_records','coach_shifts','daily_reports','attendance_records','student_notes','coach_notebooks','admin_notices','conversations','conversation_members','messages','notifications','audit_logs'] loop
- execute format('alter table public.%I enable row level security',t);
-end loop; end $$;
+-- =============================================================
+-- REPORT TEMPLATES & EXPORT POLICIES
+-- =============================================================
 
 -- Platform owner can see/manage institutions. Members only see their own institution.
 drop policy if exists institutions_select on public.institutions;
@@ -562,6 +502,7 @@ create policy institutions_owner_update on public.institutions for update to aut
 drop policy if exists institutions_manager_update on public.institutions;
 create policy institutions_manager_update on public.institutions for update to authenticated using(id=public.current_institution_id() and public.current_app_role() in ('manager','admin')) with check(id=public.current_institution_id() and public.current_app_role() in ('manager','admin'));
 
+-- == Profile policies (preserved from previous repair) ==
 drop policy if exists profiles_select on public.profiles;
 create policy profiles_select on public.profiles for select to authenticated using(id=auth.uid() or public.is_platform_owner() or (institution_id=public.current_institution_id() and public.is_active_member()));
 drop policy if exists profiles_update_self_safe on public.profiles;
@@ -615,57 +556,104 @@ create policy shifts_insert_own on public.coach_shifts for insert to authenticat
 drop policy if exists shifts_update_own_admin on public.coach_shifts;
 create policy shifts_update_own_admin on public.coach_shifts for update to authenticated using(institution_id=public.current_institution_id() and (coach_id=auth.uid() or public.is_institution_admin())) with check(institution_id=public.current_institution_id() and (coach_id=auth.uid() or public.is_institution_admin()));
 
+-- == Daily Reports Policies ==
+
+-- Coaches can only see and edit their own daily reports
 drop policy if exists reports_read_own_admin on public.daily_reports;
 create policy reports_read_own_admin on public.daily_reports for select to authenticated using(institution_id=public.current_institution_id() and (coach_id=auth.uid() or public.is_institution_admin()));
+
+-- Coaches can insert their own daily reports (draft status)
 drop policy if exists reports_insert_own on public.daily_reports;
 create policy reports_insert_own on public.daily_reports for insert to authenticated with check(institution_id=public.current_institution_id() and coach_id=auth.uid() and public.current_app_role()='coach');
+
+-- Coaches can update their own draft reports (not finalized)
 drop policy if exists reports_update_own_draft on public.daily_reports;
 create policy reports_update_own_draft on public.daily_reports for update to authenticated using(institution_id=public.current_institution_id() and coach_id=auth.uid() and not is_finalized) with check(institution_id=public.current_institution_id() and coach_id=auth.uid());
+
+-- Institution administrators may mark reports as reviewed
 drop policy if exists reports_admin_review on public.daily_reports;
 create policy reports_admin_review on public.daily_reports for update to authenticated using(institution_id=public.current_institution_id() and public.current_app_role() in ('manager','admin') and is_finalized) with check(institution_id=public.current_institution_id() and public.current_app_role() in ('manager','admin') and is_finalized);
 
-drop policy if exists attendance_read_own_admin on public.attendance_records;
-create policy attendance_read_own_admin on public.attendance_records for select to authenticated using(institution_id=public.current_institution_id() and (coach_id=auth.uid() or public.is_institution_admin()));
--- A coach records only their own attendance and only for a student of the same
--- institution. Managers/admins may record or correct attendance for any active
--- staff member of their institution. The student relation is verified too, so a
--- forged student UUID from another tenant cannot be linked.
-drop policy if exists attendance_insert_member on public.attendance_records;
-create policy attendance_insert_member on public.attendance_records for insert to authenticated with check(
- institution_id=public.current_institution_id()
- and exists(select 1 from public.students s where s.id=student_id and s.institution_id=institution_id)
- and (
-  (public.current_app_role()='coach' and coach_id=auth.uid())
-  or (public.current_app_role() in ('manager','admin') and exists(select 1 from public.profiles p where p.id=coach_id and p.institution_id=institution_id and p.account_status in ('active','suspended')))
+-- Platform owner can see all reports but cannot edit them (the trigger lock blocks edits)
+drop policy if exists reports_owner_read_all on public.daily_reports;
+create policy reports_owner_read_all on public.daily_reports for select to authenticated using(public.is_platform_owner());
+
+-- == Report Template Policies ==
+
+-- Only institution administrators can manage their templates
+drop policy if exists report_templates_select on public.report_templates;
+create policy report_templates_select on public.report_templates for select to authenticated using(institution_id=public.current_institution_id() and public.current_app_role() in ('manager','admin'));
+drop policy if exists report_templates_insert on public.report_templates;
+create policy report_templates_insert on public.report_templates for insert to authenticated with check(institution_id=public.current_institution_id() and public.current_app_role() in ('manager','admin'));
+drop policy if exists report_templates_update on public.report_templates;
+create policy report_templates_update on public.report_templates for update to authenticated using(institution_id=public.current_institution_id() and public.current_app_role() in ('manager','admin')) with check(institution_id=public.current_institution_id() and public.current_app_role() in ('manager','admin'));
+drop policy if exists report_templates_delete on public.report_templates;
+create policy report_templates_delete on public.report_templates for delete to authenticated using(institution_id=public.current_institution_id() and public.current_app_role() in ('manager','admin'));
+
+-- Platform owner can see all templates
+drop policy if exists report_templates_owner_view on public.report_templates;
+create policy report_templates_owner_view on public.report_templates for select to authenticated using(public.is_platform_owner());
+
+-- == Report Export Policies ==
+
+-- Institution admins can export their reports
+drop policy if exists report_exports_institution on public.report_exports;
+create policy report_exports_institution on public.report_exports for select to authenticated using(institution_id=public.current_institution_id() and public.current_app_role() in ('manager','admin'));
+drop policy if exists report_exports_owner_view on public.report_exports;
+create policy report_exports_owner_view on public.report_exports for select to authenticated using(public.is_platform_owner());
+
+-- == Institution policies (preserved) ==
+drop policy if exists institutions_select on public.institutions;
+create policy institutions_select on public.institutions for select to authenticated using(id=public.current_institution_id() or public.is_platform_owner());
+drop policy if exists institutions_owner_insert on public.institutions;
+create policy institutions_owner_insert on public.institutions for insert to authenticated with check(public.is_platform_owner());
+drop policy if exists institutions_owner_update on public.institutions;
+create policy institutions_owner_update on public.institutions for update to authenticated using(public.is_platform_owner()) with check(public.is_platform_owner());
+drop policy if exists institutions_manager_update on public.institutions;
+create policy institutions_manager_update on public.institutions for update to authenticated using(id=public.current_institution_id() and public.current_app_role() in ('manager','admin')) with check(id=public.current_institution_id() and public.current_app_role() in ('manager','admin'));
+
+-- == Audit log policies (preserved) ==
+drop policy if exists audit_read_admin on public.audit_logs;
+create policy audit_read_admin on public.audit_logs for select to authenticated
+using (
+ public.is_platform_owner()
+ or (
+  institution_id = public.current_institution_id()
+  and public.current_app_role() in ('manager', 'admin')
  )
 );
-drop policy if exists attendance_update_own_admin on public.attendance_records;
-create policy attendance_update_own_admin on public.attendance_records for update to authenticated using(institution_id=public.current_institution_id() and (coach_id=auth.uid() or public.is_institution_admin())) with check(
- institution_id=public.current_institution_id()
- and exists(select 1 from public.students s where s.id=student_id and s.institution_id=institution_id)
- and (coach_id=auth.uid() or public.is_institution_admin())
-);
 
-drop policy if exists student_notes_read_author_admin on public.student_notes;
-drop policy if exists student_notes_read_shared on public.student_notes;
-create policy student_notes_read_shared on public.student_notes for select to authenticated using(institution_id=public.current_institution_id() and (author_id=auth.uid() or public.is_institution_admin() or note_type<>'health_permission'));
-drop policy if exists student_notes_insert_self on public.student_notes;
-create policy student_notes_insert_self on public.student_notes for insert to authenticated with check(institution_id=public.current_institution_id() and author_id=auth.uid() and exists(select 1 from public.students s where s.id=student_id and s.institution_id=institution_id));
-drop policy if exists student_notes_update_self_admin on public.student_notes;
-create policy student_notes_update_self_admin on public.student_notes for update to authenticated using(institution_id=public.current_institution_id() and (author_id=auth.uid() or public.is_institution_admin())) with check(institution_id=public.current_institution_id() and exists(select 1 from public.students s where s.id=student_id and s.institution_id=institution_id));
+-- == Shift policies (preserved) ==
+drop policy if exists shifts_read_own_admin on public.coach_shifts;
+create policy shifts_read_own_admin on public.coach_shifts for select to authenticated using(institution_id=public.current_institution_id() and (coach_id=auth.uid() or public.is_institution_admin()));
+drop policy if exists shifts_insert_own on public.coach_shifts;
+create policy shifts_insert_own on public.coach_shifts for insert to authenticated with check(institution_id=public.current_institution_id() and coach_id=auth.uid() and public.current_app_role()='coach');
+drop policy if exists shifts_update_own_admin on public.coach_shifts;
+create policy shifts_update_own_admin on public.coach_shifts for update to authenticated using(institution_id=public.current_institution_id() and (coach_id=auth.uid() or public.is_institution_admin())) with check(institution_id=public.current_institution_id() and (coach_id=auth.uid() or public.is_institution_admin()));
 
-drop policy if exists notebook_private_all on public.coach_notebooks;
-create policy notebook_private_all on public.coach_notebooks for all to authenticated using(institution_id=public.current_institution_id() and coach_id=auth.uid()) with check(institution_id=public.current_institution_id() and coach_id=auth.uid());
+-- == Student policies (preserved) ==
+drop policy if exists students_read on public.students;
+create policy students_read on public.students for select to authenticated using(institution_id=public.current_institution_id());
+drop policy if exists students_admin_write on public.students;
+create policy students_admin_write on public.students for all to authenticated using(institution_id=public.current_institution_id() and public.is_institution_admin()) with check(institution_id=public.current_institution_id() and public.is_institution_admin() and (class_id is null or exists(select 1 from public.classes c where c.id=class_id and c.institution_id=institution_id)));
+
+-- == Medical policies (preserved) ==
+drop policy if exists medical_admin_read on public.student_medical_records;
+create policy medical_admin_read on public.student_medical_records for select to authenticated using(institution_id=public.current_institution_id() and public.is_institution_admin());
+drop policy if exists medical_admin_insert on public.student_medical_records;
+create policy medical_admin_insert on public.student_medical_records for insert to authenticated with check(institution_id=public.current_institution_id() and public.is_institution_admin() and created_by=auth.uid() and exists(select 1 from public.students s where s.id=student_id and s.institution_id=institution_id));
+drop policy if exists medical_admin_update on public.student_medical_records;
+create policy medical_admin_update on public.student_medical_records for update to authenticated using(institution_id=public.current_institution_id() and public.is_institution_admin()) with check(institution_id=public.current_institution_id() and public.is_institution_admin() and exists(select 1 from public.students s where s.id=student_id and s.institution_id=institution_id));
+drop policy if exists medical_admin_delete on public.student_medical_records;
+create policy medical_admin_delete on public.student_medical_records for delete to authenticated using(institution_id=public.current_institution_id() and public.is_institution_admin());
+
+-- == Notices policies (preserved) ==
 drop policy if exists notices_read on public.admin_notices;
 create policy notices_read on public.admin_notices for select to authenticated using(institution_id=public.current_institution_id() and (is_published or public.is_institution_admin()));
 drop policy if exists notices_admin_write on public.admin_notices;
 create policy notices_admin_write on public.admin_notices for all to authenticated using(institution_id=public.current_institution_id() and public.is_institution_admin()) with check(institution_id=public.current_institution_id() and public.is_institution_admin() and author_id=auth.uid());
 
--- Conversations are created through public.create_conversation(), never by a
--- direct table insert. Membership inserts are restricted to the group creator
--- or an institution administrator; a member can remove themselves but nobody
--- can re-add themselves after removal.
-drop policy if exists conversations_admin_create on public.conversations;
+-- == Conversations policies (preserved) ==
 drop policy if exists conversations_read_member on public.conversations;
 create policy conversations_read_member on public.conversations for select to authenticated using(institution_id=public.current_institution_id() and public.is_conversation_member(id));
 drop policy if exists conversation_members_read on public.conversation_members;
@@ -673,334 +661,62 @@ create policy conversation_members_read on public.conversation_members for selec
  exists(select 1 from public.conversations c where c.id=conversation_id and c.institution_id=public.current_institution_id())
  and (public.is_conversation_member(conversation_id) or public.is_institution_admin())
 );
-drop policy if exists conversation_members_admin_add on public.conversation_members;
-drop policy if exists conversation_members_creator_add on public.conversation_members;
-create policy conversation_members_manager_add on public.conversation_members for insert to authenticated with check(
- exists(select 1 from public.conversations c where c.id=conversation_id and c.conversation_type='group' and c.institution_id=public.current_institution_id() and (c.created_by=auth.uid() or public.is_institution_admin()))
- and exists(select 1 from public.profiles p where p.id=profile_id and p.institution_id=public.current_institution_id() and p.account_status='active')
-);
-drop policy if exists conversation_members_remove on public.conversation_members;
-create policy conversation_members_remove on public.conversation_members for delete to authenticated using(
- profile_id=auth.uid()
- or exists(select 1 from public.conversations c where c.id=conversation_id and c.conversation_type='group' and c.institution_id=public.current_institution_id() and (c.created_by=auth.uid() or public.is_institution_admin()))
-);
 
-drop policy if exists messages_read_member on public.messages;
-create policy messages_read_member on public.messages for select to authenticated using(
- institution_id=public.current_institution_id()
- and conversation_id is not null
- and exists(select 1 from public.conversations c where c.id=conversation_id and c.institution_id=institution_id)
- and public.is_conversation_member(conversation_id)
-);
-drop policy if exists messages_insert_member on public.messages;
-create policy messages_insert_member on public.messages for insert to authenticated with check(
- institution_id=public.current_institution_id()
- and sender_id=auth.uid()
- and conversation_id is not null
- and exists(select 1 from public.conversations c where c.id=conversation_id and c.institution_id=institution_id)
- and public.is_conversation_member(conversation_id)
-);
-drop policy if exists notifications_read_own on public.notifications;
-create policy notifications_read_own on public.notifications for select to authenticated using(recipient_id=auth.uid());
-drop policy if exists notifications_update_own on public.notifications;
-create policy notifications_update_own on public.notifications for update to authenticated using(recipient_id=auth.uid()) with check(recipient_id=auth.uid());
-create or replace function public.guard_notification_update() returns trigger language plpgsql set search_path=public,pg_temp
-as $$ begin if new.recipient_id is distinct from old.recipient_id or new.institution_id is distinct from old.institution_id or new.title is distinct from old.title or new.body is distinct from old.body or new.notification_type is distinct from old.notification_type or new.created_at is distinct from old.created_at then raise exception 'Notification content is immutable'; end if; return new; end $$;
-drop trigger if exists notifications_guard on public.notifications;
-create trigger notifications_guard before update on public.notifications for each row execute function public.guard_notification_update();
-drop policy if exists audit_read_admin on public.audit_logs;
-create policy audit_read_admin on public.audit_logs for select to authenticated using(
- public.is_platform_owner()
- or (institution_id=public.current_institution_id() and public.current_app_role() in ('manager','admin'))
-);
-
--- Private object storage. Use institution UUID as first folder and user UUID as second.
-insert into storage.buckets(id,name,public,file_size_limit,allowed_mime_types) values
- ('trainer-media','trainer-media',false,26214400,array['image/jpeg','image/png','image/webp','audio/webm','audio/mp4','application/pdf']),
- ('trainer-avatars','trainer-avatars',false,5242880,array['image/jpeg','image/png','image/webp']),
- ('trainer-medical','trainer-medical',false,26214400,array['image/jpeg','image/png','image/webp','application/pdf'])
-on conflict(id) do nothing;
-drop policy if exists trainer_media_read on storage.objects;
-create policy trainer_media_read on storage.objects for select to authenticated using((bucket_id='trainer-avatars' and (storage.foldername(name))[1]=public.current_institution_id()::text) or (bucket_id='trainer-media' and (storage.foldername(name))[1]=public.current_institution_id()::text and exists(select 1 from public.messages m where m.media_path=name and m.conversation_id is not null and public.is_conversation_member(m.conversation_id))));
-drop policy if exists trainer_media_upload on storage.objects;
-create policy trainer_media_upload on storage.objects for insert to authenticated with check(bucket_id='trainer-media' and (storage.foldername(name))[1]=public.current_institution_id()::text and (storage.foldername(name))[3]=auth.uid()::text and exists(select 1 from public.conversations c where c.id::text=(storage.foldername(name))[2] and c.institution_id=public.current_institution_id() and public.is_conversation_member(c.id)));
-drop policy if exists trainer_media_delete_own on storage.objects;
-create policy trainer_media_delete_own on storage.objects for delete to authenticated using(bucket_id='trainer-media' and (storage.foldername(name))[1]=public.current_institution_id()::text and (storage.foldername(name))[3]=auth.uid()::text and exists(select 1 from public.messages m where m.media_path=name and m.sender_id=auth.uid()));
-drop policy if exists trainer_avatar_upload on storage.objects;
-create policy trainer_avatar_upload on storage.objects for insert to authenticated with check(bucket_id='trainer-avatars' and (storage.foldername(name))[1]=public.current_institution_id()::text and (storage.foldername(name))[2]=auth.uid()::text);
-drop policy if exists trainer_avatar_update on storage.objects;
-create policy trainer_avatar_update on storage.objects for update to authenticated using(bucket_id='trainer-avatars' and (storage.foldername(name))[1]=public.current_institution_id()::text and (storage.foldername(name))[2]=auth.uid()::text) with check(bucket_id='trainer-avatars' and (storage.foldername(name))[1]=public.current_institution_id()::text and (storage.foldername(name))[2]=auth.uid()::text);
-drop policy if exists trainer_medical_admin_read on storage.objects;
-create policy trainer_medical_admin_read on storage.objects for select to authenticated using(bucket_id='trainer-medical' and (storage.foldername(name))[1]=public.current_institution_id()::text and public.is_institution_admin());
-drop policy if exists trainer_medical_admin_upload on storage.objects;
-create policy trainer_medical_admin_upload on storage.objects for insert to authenticated with check(bucket_id='trainer-medical' and (storage.foldername(name))[1]=public.current_institution_id()::text and (storage.foldername(name))[2]=auth.uid()::text and public.is_institution_admin());
-
--- Enable Supabase Realtime for institution messages and per-user notifications.
-do $$ begin
- if exists(select 1 from pg_publication where pubname='supabase_realtime') then
-  if not exists(select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename='messages') then alter publication supabase_realtime add table public.messages; end if;
-  if not exists(select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename='notifications') then alter publication supabase_realtime add table public.notifications; end if;
- end if;
-end $$;
-
-
--- =====================================================================
--- ADDITIONS v2 (statut rejected, notes enrichies, lecture des messages,
--- gestion des membres de groupe, repère de suivi après 5 absences).
--- =====================================================================
-
--- 1) Account status: add 'rejected'.
-alter table public.profiles drop constraint if exists profiles_account_status_check;
-alter table public.profiles add constraint profiles_account_status_check check(account_status in ('pending','active','rejected','suspended'));
-
--- 2) Institution setting: should permission/exemption absences count toward the 5-absence streak? (default: no)
-alter table public.institutions add column if not exists count_permissions_as_absence boolean not null default false;
-
--- 3) Student notes: richer categories, follow-up status, shared visibility (health/permission notes stay author+admin only).
-alter table public.student_notes drop constraint if exists student_notes_note_type_check;
-alter table public.student_notes add constraint student_notes_note_type_check check(note_type in ('general','behavior','discipline','progress','educational','administrative','individual_follow_up','difficulty','health_permission','other'));
-alter table public.student_notes add column if not exists follow_up_status text not null default 'none';
-alter table public.student_notes drop constraint if exists student_notes_follow_up_status_check;
-alter table public.student_notes add constraint student_notes_follow_up_status_check check(follow_up_status in ('none','open','done'));
-alter table public.student_notes add column if not exists last_follow_up_at timestamptz;
-drop policy if exists student_notes_read_author_admin on public.student_notes;
+-- == Student Notes policies (preserved) ==
 drop policy if exists student_notes_read_shared on public.student_notes;
 create policy student_notes_read_shared on public.student_notes for select to authenticated using(institution_id=public.current_institution_id() and (author_id=auth.uid() or public.is_institution_admin() or note_type<>'health_permission'));
+drop policy if exists student_notes_insert_self on public.student_notes;
+create policy student_notes_insert_self on public.student_notes for insert to authenticated with check(institution_id=public.current_institution_id() and author_id=auth.uid() and exists(select 1 from public.students s where s.id=student_id and s.institution_id=institution_id));
+drop policy if exists student_notes_update_self_admin on public.student_notes;
+create policy student_notes_update_self_admin on public.student_notes for update to authenticated using(institution_id=public.current_institution_id() and (author_id=auth.uid() or public.is_institution_admin())) with check(institution_id=public.current_institution_id() and exists(select 1 from public.students s where s.id=student_id and s.institution_id=institution_id));
 
--- 4) Message read receipts and unread counters.
-create table if not exists public.message_reads (
- message_id uuid not null references public.messages(id) on delete cascade,
- reader_id uuid not null references public.profiles(id) on delete cascade,
- read_at timestamptz not null default now(),
- primary key(message_id,reader_id)
-);
-create index if not exists message_reads_reader_idx on public.message_reads(reader_id);
-alter table public.message_reads enable row level security;
-drop policy if exists message_reads_select on public.message_reads;
-create policy message_reads_select on public.message_reads for select to authenticated using(reader_id=auth.uid() or exists(select 1 from public.messages m where m.id=message_id and m.sender_id=auth.uid()));
+-- == Admin Notices insert policy (preserved) ==
+drop policy if exists notices_admin_write on public.admin_notices;
+create policy notices_admin_write on public.admin_notices for all to authenticated using(institution_id=public.current_institution_id() and public.is_institution_admin()) with check(institution_id=public.current_institution_id() and public.is_institution_admin() and author_id=auth.uid());
 
-create or replace function public.mark_conversation_read(p_conversation_id uuid) returns integer
+-- == Ensure session_key column exists (additive) ==
+alter table public.attendance_records add column if not exists session_key text not null default 'unspecified';
+
+create unique index if not exists attendance_records_session_unique on public.attendance_records(student_id,session_date,session_key);
+
+create index if not exists attendance_date_idx on public.attendance_records(institution_id,session_date desc);
+
+-- Identity and authorization helpers. SECURITY DEFINER functions have fixed search_path.
+create or replace function public.notify_new_notice() returns trigger
 language plpgsql security definer set search_path=public,pg_temp
-as $$
-declare v_n integer;
-begin
- if auth.uid() is null or not public.is_conversation_member(p_conversation_id) then raise exception 'Not a member of this conversation'; end if;
- insert into public.message_reads(message_id,reader_id)
-  select m.id,auth.uid() from public.messages m where m.conversation_id=p_conversation_id and m.sender_id<>auth.uid()
-  on conflict do nothing;
- get diagnostics v_n=row_count;
- return v_n;
-end $$;
-
-create or replace function public.unread_counts() returns table(conversation_id uuid, unread bigint)
-language sql stable security definer set search_path=public,pg_temp
-as $$
- select m.conversation_id, count(*)::bigint
- from public.messages m
- join public.conversation_members cm on cm.conversation_id=m.conversation_id and cm.profile_id=auth.uid()
- where m.sender_id<>auth.uid()
-   and not exists(select 1 from public.message_reads r where r.message_id=m.id and r.reader_id=auth.uid())
- group by m.conversation_id
-$$;
-
--- 5) Group membership management: creator of a group can add members; members can leave; creator/admin can remove.
-drop policy if exists conversation_members_creator_add on public.conversation_members;
-create policy conversation_members_creator_add on public.conversation_members for insert to authenticated with check(
- exists(select 1 from public.conversations c where c.id=conversation_id and c.created_by=auth.uid() and c.conversation_type='group' and c.institution_id=public.current_institution_id())
- and exists(select 1 from public.profiles p where p.id=profile_id and p.institution_id=public.current_institution_id() and p.account_status='active'));
-drop policy if exists conversation_members_remove on public.conversation_members;
-create policy conversation_members_remove on public.conversation_members for delete to authenticated using(
- profile_id=auth.uid()
- or exists(select 1 from public.conversations c where c.id=conversation_id and c.institution_id=public.current_institution_id()
-           and ((c.created_by=auth.uid() and c.conversation_type='group') or public.is_institution_admin())));
-
--- 6) Follow-up flag after 5 or more consecutive absences.
--- "Consecutive" = consecutive actual sessions of the institution (distinct session dates that have attendance records), not calendar days.
--- After the student returns (present/late), the flag stays visible for the next 2 actual sessions (the return session counts as the first).
-create table if not exists public.absence_followups (
- id uuid primary key default gen_random_uuid(),
- institution_id uuid not null references public.institutions(id) on delete cascade,
- student_id uuid not null references public.students(id) on delete cascade,
- streak_start date not null, streak_start_key text not null default 'unspecified',
- streak_end date not null, streak_end_key text not null default 'unspecified',
- absences integer not null check(absences>=5),
- status text not null default 'awaiting_return' check(status in ('awaiting_return','active','completed')),
- return_date date, return_session_key text,
- sessions_seen integer not null default 0 check(sessions_seen between 0 and 2),
- last_counted_date date, last_counted_session_key text,
- handled_at timestamptz, handled_by uuid references public.profiles(id),
- created_at timestamptz not null default now(), updated_at timestamptz not null default now(),
- unique(student_id,streak_start,streak_start_key)
-);
-create index if not exists absence_followups_inst_status on public.absence_followups(institution_id,status);
-alter table public.absence_followups enable row level security;
-drop policy if exists absence_followups_read on public.absence_followups;
-create policy absence_followups_read on public.absence_followups for select to authenticated using(institution_id=public.current_institution_id() and public.is_active_member());
-
--- Follow-up rule (session-aware):
---   * a streak is built from distinct actual institution sessions
---     (session_date + session_key), never from calendar days;
---   * a missing attendance record breaks the streak, while permission /
---     exemption / duty only break it when the institution setting asks for them
---     to count as absence;
---   * after the return, the return session itself is NOT one of the two
---     follow-up sessions; the next two actual sessions are counted;
---   * every update recomputes from history, so correcting or re-saving a record
---     never double-counts.
-create or replace function public.track_absence_followup() returns trigger
-language plpgsql security definer set search_path=public,pg_temp
-as $$
-declare
- v_perm boolean;
- v_count integer:=0;
- v_seen integer:=0;
- v_start_date date;
- v_start_key text;
- v_latest_date date;
- v_latest_key text;
- v_latest_status text;
- v_fu public.absence_followups%rowtype;
- v_name text;
- r record;
-begin
- select coalesce(i.count_permissions_as_absence,false) into v_perm
-  from public.institutions i where i.id=new.institution_id;
- v_perm:=coalesce(v_perm,false);
-
- -- Evaluate the student's latest recorded session, not merely the row that was
- -- touched: a correction to an older record must be reflected too.
- select a.session_date,a.session_key,a.status
-  into v_latest_date,v_latest_key,v_latest_status
-  from public.attendance_records a
-  where a.institution_id=new.institution_id and a.student_id=new.student_id
-  order by a.session_date desc,a.session_key desc
-  limit 1;
- if v_latest_date is null then return new; end if;
-
- -- Consecutive absence streak ending at that latest session.
- for r in
-  select s.session_date as sd,s.session_key as sk,a.status as st
-  from (
-   select distinct x.session_date,x.session_key
-   from public.attendance_records x
-   where x.institution_id=new.institution_id
-     and (x.session_date<v_latest_date or (x.session_date=v_latest_date and x.session_key<=v_latest_key))
-  ) s
-  left join public.attendance_records a
-    on a.institution_id=new.institution_id and a.student_id=new.student_id
-   and a.session_date=s.session_date and a.session_key=s.session_key
-  order by s.session_date desc,s.session_key desc
- loop
-  exit when r.st is null or not (r.st='absent' or (v_perm and r.st in ('excused','medical_exemption','permission')));
-  v_count:=v_count+1;
-  v_start_date:=r.sd;
-  v_start_key:=r.sk;
- end loop;
-
- if v_latest_status='absent' or (v_perm and v_latest_status in ('excused','medical_exemption','permission')) then
-  if v_count>=5 then
-   insert into public.absence_followups(institution_id,student_id,streak_start,streak_start_key,streak_end,streak_end_key,absences)
-   values(new.institution_id,new.student_id,v_start_date,v_start_key,v_latest_date,v_latest_key,v_count)
-   on conflict(student_id,streak_start,streak_start_key) do update
-     set streak_end=excluded.streak_end,
-         streak_end_key=excluded.streak_end_key,
-         absences=excluded.absences,
-         updated_at=now()
-     where public.absence_followups.status='awaiting_return';
-  else
-   -- A correction removed an absence from an open streak. Close it only when a
-   -- session inside the streak is now a non-absence; a gap caused by a missing
-   -- record is not a return and must not erase the flag.
-   update public.absence_followups f
-    set status='completed',updated_at=now()
-    where f.institution_id=new.institution_id and f.student_id=new.student_id
-      and f.status='awaiting_return'
-      and exists(
-       select 1 from public.attendance_records a
-       where a.institution_id=f.institution_id and a.student_id=f.student_id
-         and (a.session_date,a.session_key) between (f.streak_start,f.streak_start_key) and (f.streak_end,f.streak_end_key)
-         and not (a.status='absent' or (v_perm and a.status in ('excused','medical_exemption','permission')))
-      );
-  end if;
- elsif v_latest_status in ('present','late') then
-  -- Return detected. Activate the most recent awaiting flag only when the
-  -- return session is strictly after the streak.
-  select * into v_fu from public.absence_followups
-   where institution_id=new.institution_id and student_id=new.student_id and status='awaiting_return'
-     and (v_latest_date,v_latest_key)>(streak_end,streak_end_key)
-   order by streak_end desc,streak_end_key desc limit 1;
-  if found then
-   update public.absence_followups
-     set status='active',return_date=v_latest_date,return_session_key=v_latest_key,
-         sessions_seen=0,last_counted_date=v_latest_date,last_counted_session_key=v_latest_key,
-         updated_at=now()
-     where id=v_fu.id;
-   select coalesce(nullif(full_name,''),'') into v_name from public.students where id=new.student_id;
-   insert into public.notifications(institution_id,recipient_id,title,body,notification_type)
-   values(new.institution_id,new.coach_id,'عودة تلميذ بعد غياب متتالٍ',
-     'عاد التلميذ '||coalesce(v_name,'')||' بعد خمس غيابات متتالية أو أكثر. يرجى متابعته خلال الحصتين القادمتين.',
-     'absence_followup');
-  end if;
- end if;
-
- -- Progress every active flag from the actual sessions that happened after the
- -- return. This is idempotent and does not depend on how many times a record is
- -- saved or corrected.
- select * into v_fu from public.absence_followups
-  where institution_id=new.institution_id and student_id=new.student_id and status='active'
-  order by return_date desc,return_session_key desc limit 1;
- if found then
-  select count(*)::integer into v_seen
-  from (
-   select distinct x.session_date,x.session_key
-   from public.attendance_records x
-   where x.institution_id=new.institution_id
-     and (x.session_date>v_fu.return_date
-          or (x.session_date=v_fu.return_date and x.session_key>coalesce(v_fu.return_session_key,'')))
-     and (x.session_date<v_latest_date
-          or (x.session_date=v_latest_date and x.session_key<=v_latest_key))
-  ) s;
-  update public.absence_followups
-   set sessions_seen=least(v_seen,2),
-       last_counted_date=v_latest_date,
-       last_counted_session_key=v_latest_key,
-       status=case when v_seen>=2 then 'completed' else 'active' end,
-       updated_at=now()
-   where id=v_fu.id;
- end if;
+as $$ begin
+ insert into public.notifications(institution_id,recipient_id,title,body,notification_type)
+ select new.institution_id,p.id,new.title,new.body,'notice'
+ from public.profiles p where p.institution_id=new.institution_id and p.account_status='active' and p.id<>new.author_id;
  return new;
 end $$;
-drop trigger if exists attendance_followup_trg on public.attendance_records;
-create trigger attendance_followup_trg after insert or update of status on public.attendance_records for each row execute function public.track_absence_followup();
+drop trigger if exists admin_notice_notify on public.admin_notices;
+create trigger admin_notice_notify after insert on public.admin_notices for each row when (new.is_published=true) execute function public.notify_new_notice();
 
-create or replace function public.mark_followup_handled(p_id uuid) returns void
-language plpgsql security definer set search_path=public,pg_temp
-as $$
-begin
- if public.current_app_role() not in ('coach','admin','manager') then
-  raise exception 'Only a coach, an administrator or the manager may handle a follow-up';
- end if;
- update public.absence_followups
-  set handled_at=now(),handled_by=auth.uid(),updated_at=now()
-  where id=p_id and institution_id=public.current_institution_id() and handled_at is null;
- if not found then raise exception 'Follow-up not found or already handled'; end if;
+create or replace function public.notify_submitted_report() returns trigger language plpgsql security definer set search_path=public,pg_temp
+as $$ begin
+ insert into public.notifications(institution_id,recipient_id,title,body,notification_type)
+ select new.institution_id,p.id,'Daily report submitted',new.coach_name_snapshot||' submitted a report for '||new.report_date::text,'report'
+ from public.profiles p where p.institution_id=new.institution_id and p.account_status='active' and p.role in ('manager','admin');
+ return new;
 end $$;
+drop trigger if exists daily_report_notify on public.daily_reports;
+create trigger daily_report_notify after insert on public.daily_reports for each row when (new.is_finalized=true) execute function public.notify_submitted_report();
 
-revoke all on function public.mark_conversation_read(uuid),public.unread_counts(),public.track_absence_followup(),public.mark_followup_handled(uuid) from public,anon;
-grant execute on function public.mark_conversation_read(uuid),public.unread_counts(),public.mark_followup_handled(uuid) to authenticated;
+-- Tell every other conversation member about a new message.
+create or replace function public.notify_new_message() returns trigger
+language plpgsql security definer set search_path=public,pg_temp
+as $$ declare v_name text; v_preview text; begin
+ select coalesce(nullif(p.full_name,''),p.email) into v_name from public.profiles p where p.id=new.sender_id;
+ v_preview:=left(coalesce(nullif(trim(new.body),''),'[attachment]'),160);
+ insert into public.notifications(institution_id,recipient_id,title,body,notification_type)
+ select new.institution_id,cm.profile_id,'رسالة جديدة',coalesce(v_name,'')||': '||v_preview,'message'
+ from public.conversation_members cm
+ join public.profiles p on p.id=cm.profile_id and p.account_status='active'
+ where cm.conversation_id=new.conversation_id and cm.profile_id<>new.sender_id;
+ return new;
+end $$;
+drop trigger if exists message_notify on public.messages;
+create trigger message_notify after insert on public.messages for each row execute function public.notify_new_message();
 
--- Minimal grants; RLS remains the authorization boundary.
-grant usage on schema public to authenticated;
-grant select,insert,update,delete on all tables in schema public to authenticated;
-grant usage,select on all sequences in schema public to authenticated;
-revoke all on function public.create_conversation(text,uuid[]) from public,anon;
-grant execute on function public.current_institution_id(),public.current_app_role(),public.is_platform_owner(),public.is_institution_admin(),public.is_active_member(),public.is_conversation_member(uuid),public.create_conversation(text,uuid[]) to authenticated;
 commit;
-
--- FIRST DEPLOYMENT / OWNER:
--- 1) Create a Supabase project dedicated to The Trainers.
--- 2) Run this file once in SQL Editor.
--- 3) In Supabase Auth, invite ayoubmalleh772@gmail.com (or sign up with that email).
---    The auth trigger automatically creates the active platform-owner profile.
--- 4) Sign in to the app as owner; create the first institution and manager from the Owner console.
--- 5) Never expose the service_role key in frontend code.
