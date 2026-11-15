@@ -2,9 +2,9 @@ import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } 
 import { NavLink, Route, Routes, useNavigate } from 'react-router-dom'
 import {
   Activity, Archive, Bell, Building2, CalendarDays, Check, ChevronLeft, ClipboardList,
-  Dumbbell, FileUp, GraduationCap, HeartPulse, History, Home, Languages, LogOut, Menu,
+  FileUp, GraduationCap, HeartPulse, History, Home, Languages, LogOut, Menu,
   MessageCircle, Mic, NotebookPen, Paperclip, Pencil, Plus, Search, Send,
-  Settings as SettingsIcon, ShieldCheck, Square, Trash2, Trophy, UserPlus, Users, X, Zap,
+  Settings as SettingsIcon, ShieldCheck, Square, Trash2, UserPlus, Users, X,
   type LucideIcon,
 } from 'lucide-react'
 import type { Session } from '@supabase/supabase-js'
@@ -318,7 +318,7 @@ export default function App() {
   }
 
   if (busy) {
-    return <div className="loading-screen"><BrandMark /><p>{t('loading')}</p></div>
+    return <div className="loading-screen"><div className="brand-mark">T</div><p>{t('loading')}</p></div>
   }
 
   if (!isLocalMode) {
@@ -326,13 +326,29 @@ export default function App() {
       return <Login lang={lang} setLang={setLang} t={t} />
     }
     if (gate !== 'active') {
-      return <GateScreen state={gate} t={t} onRetry={retryProfile} onSignOut={signOut} />
+      return (
+        <GateScreen
+          state={gate}
+          t={t}
+          onRetry={retryProfile}
+          onSignOut={signOut}
+          onAccepted={retryProfile}
+        />
+      )
     }
   }
 
   const viewProfile: Profile | null = isLocalMode ? localProfile : profile
   if (!viewProfile) {
-    return <GateScreen state="error" t={t} onRetry={retryProfile} onSignOut={signOut} />
+    return (
+      <GateScreen
+        state="error"
+        t={t}
+        onRetry={retryProfile}
+        onSignOut={signOut}
+        onAccepted={retryProfile}
+      />
+    )
   }
 
   const owner = viewProfile.role === 'owner'
@@ -352,6 +368,7 @@ export default function App() {
         ['/notices', Bell, 'notices'],
         ['/notifications', Bell, 'notifications', true],
         ['/messages', MessageCircle, 'messages'],
+        ['/accept-invitation', ShieldCheck, 'acceptInvitation'],
         ...(admin ? [
           ['/team', UserPlus, 'team'] as [string, LucideIcon, string],
           ['/medical', HeartPulse, 'medical'] as [string, LucideIcon, string],
@@ -367,7 +384,7 @@ export default function App() {
           {menu ? <X /> : <Menu />}
         </button>
         <div className="brand">
-          <BrandMark />
+          <div className="brand-mark">T</div>
           <div className="app-name">
             <span className="arabic">{t('app')}</span>
             <span className="latin">{t('subtitle')}</span>
@@ -417,6 +434,7 @@ export default function App() {
             <Route path="/notices" element={!owner ? <Notices profile={viewProfile} t={t} /> : <Denied t={t} />} />
             <Route path="/notifications" element={!owner ? <Notifications profile={viewProfile} t={t} /> : <Denied t={t} />} />
             <Route path="/messages" element={!owner ? <Messages profile={viewProfile} t={t} /> : <Denied t={t} />} />
+            <Route path="/accept-invitation" element={!owner ? <AcceptInvitation t={t} onAccepted={retryProfile} /> : <Denied t={t} />} />
             <Route path="/team" element={admin && !owner ? <Team profile={viewProfile} t={t} /> : <Denied t={t} />} />
             <Route path="/medical" element={admin && !owner ? <Medical profile={viewProfile} t={t} /> : <Denied t={t} />} />
             <Route path="/settings" element={admin && !owner ? <InstitutionSettings profile={viewProfile} t={t} /> : <Denied t={t} />} />
@@ -425,19 +443,6 @@ export default function App() {
           </Routes>
         </main>
       </div>
-      {menu && <div className="scrim" onClick={() => setMenu(false)} aria-hidden="true" />}
-      <nav className="bottom-nav" aria-label="Primary">
-        {navItems.slice(0, 4).map(([to, Icon, key]) => (
-          <NavLink end={to === '/'} to={to} key={`bottom-${to}`} onClick={() => setMenu(false)}>
-            <Icon size={22} />
-            <span>{t(key)}</span>
-          </NavLink>
-        ))}
-        <button type="button" onClick={() => setMenu((v) => !v)} aria-label={t('more')}>
-          <Menu size={22} />
-          <span>{t('more')}</span>
-        </button>
-      </nav>
       {toast && <div className="toast" role="status" onClick={() => setToast('')}>{toast}</div>}
     </div>
   )
@@ -468,7 +473,7 @@ function RecoveryScreen({ mode, t, onDone, onSignOut }: {
     <div className="login-wrap">
       <section className="login-card">
         <div className="login-brand">
-          <BrandMark big />
+          <div className="brand-mark big">T</div>
           <h1 className="app-name">
             <span className="arabic">{t('app')}</span>
             <span className="latin">{t('subtitle')}</span>
@@ -527,22 +532,9 @@ function Login({ lang, setLang, t }: { lang: Lang; setLang: (v: Lang) => void; t
 
   return (
     <div className="login-wrap">
-      <div className="login-stage">
-        <aside className="login-hero">
-          <div>
-            <span className="eyebrow">{t('app')} · {t('subtitle')}</span>
-            <h2>{t('heroTitle')}</h2>
-            <p>{t('heroSub')}</p>
-          </div>
-          <div className="value-chips">
-            <span className="value-chip"><Dumbbell size={16} /> {t('valueStrength')}</span>
-            <span className="value-chip"><Zap size={16} /> {t('valueSpeed')}</span>
-            <span className="value-chip"><Trophy size={16} /> {t('valueTraining')}</span>
-          </div>
-        </aside>
       <section className="login-card">
         <div className="login-brand">
-          <BrandMark big />
+          <div className="brand-mark big">T</div>
           <h1 className="app-name">
             <span className="arabic">{t('app')}</span>
             <span className="latin">{t('subtitle')}</span>
@@ -593,22 +585,147 @@ function Login({ lang, setLang, t }: { lang: Lang; setLang: (v: Lang) => void; t
         )}
         <small className="secure-note"><ShieldCheck size={14} /> {t('secureAccess')}</small>
       </section>
-      </div>
     </div>
   )
 }
 
-function GateScreen({ state, t, onRetry, onSignOut }: {
+type FunctionPayload = {
+  error?: string
+  ok?: boolean
+  already_accepted?: boolean
+  attempts_remaining?: number
+}
+
+/**
+ * `functions.invoke` exposes a non-2xx body through `error.context`. The body
+ * carries a stable error code; provider/database messages are never shown.
+ */
+async function functionErrorCode(error: unknown): Promise<string> {
+  const context = (error as { context?: { json?: () => Promise<unknown> } } | null)?.context
+  if (!context?.json) return ''
+  try {
+    const body = await context.json()
+    if (body && typeof body === 'object' && typeof (body as { error?: unknown }).error === 'string') {
+      return (body as { error: string }).error
+    }
+  } catch {
+    // The response body may be empty or already consumed.
+  }
+  return ''
+}
+
+function otpErrorMessage(code: string, t: T): string {
+  switch (code) {
+    case 'too_many_attempts':
+    case 'rate_limited':
+      return t('otpTooMany')
+    case 'otp_expired':
+    case 'invitation_expired':
+      return t('otpExpired')
+    case 'recipient_mismatch':
+      return t('otpRecipientMismatch')
+    case 'invitation_not_pending':
+    case 'invitation_already_accepted':
+      return t('otpNotPending')
+    case 'account_suspended':
+      return t('suspendedMsg')
+    case 'different_institution':
+      return t('otpDifferentInstitution')
+    case 'email_required':
+      return t('otpEmailRequired')
+    default:
+      return t('invalidOtp')
+  }
+}
+
+function inviteErrorMessage(code: string, t: T): string {
+  switch (code) {
+    case 'already_registered':
+      return t('alreadyRegistered')
+    case 'invalid_phone':
+      return t('invalidPhone')
+    case 'invitation_email_failed':
+    case 'otp_delivery_failed':
+      return t('inviteDeliveryFailed')
+    case 'rate_limited':
+    case 'otp_rate_limited':
+      return t('tooManyRequests')
+    case 'institution_inactive':
+      return t('inactive')
+    case 'institution_forbidden':
+    case 'role_not_allowed':
+    case 'insufficient_role':
+    case 'Coaches may invite coaches only':
+      return t('noPermission')
+    case 'different_institution':
+      return t('otpDifferentInstitution')
+    case 'account_suspended':
+      return t('suspendedMsg')
+    default:
+      return t('errorGeneric')
+  }
+}
+
+/** The invitee — never the inviter — redeems the code from their own session. */
+function OtpCodeForm({ t, onAccepted }: { t: T; onAccepted: () => void }) {
+  const [code, setCode] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  async function submit(e: FormEvent) {
+    e.preventDefault()
+    if (busy) return
+    if (!/^\d{6}$/.test(code)) { notify(t('invalidOtp')); return }
+    if (!isConfigured) { notify(t('configMissing')); return }
+    setBusy(true)
+    const { data, error } = await supabase.functions.invoke('verify-otp', {
+      body: { otp_code: code },
+    })
+    setBusy(false)
+    const payload = data as FunctionPayload | null
+    const errorCode = payload?.error || await functionErrorCode(error)
+    if (error || errorCode) {
+      notify(otpErrorMessage(errorCode, t))
+      return
+    }
+    setCode('')
+    notify(t('otpVerified'))
+    onAccepted()
+  }
+
+  return (
+    <form className="otp-form" onSubmit={submit}>
+      <p className="muted">{t('otpVerificationHint')}</p>
+      <label>{t('otpCode')}
+        <input
+          required
+          inputMode="numeric"
+          autoComplete="one-time-code"
+          maxLength={6}
+          pattern="[0-9]{6}"
+          value={code}
+          onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+        />
+      </label>
+      <button className="primary full" disabled={busy || code.length !== 6}>
+        {busy ? t('verifyingOtp') : t('verifyOtp')}
+      </button>
+    </form>
+  )
+}
+
+function GateScreen({ state, t, onRetry, onSignOut, onAccepted }: {
   state: GateState
   t: T
   onRetry: () => void
   onSignOut: () => void
+  onAccepted: () => void
 }) {
+  const canRedeem = state === 'pending' || state === 'missing'
   return (
     <div className="login-wrap">
       <section className="login-card">
         <div className="login-brand">
-          <BrandMark big />
+          <div className="brand-mark big">T</div>
           <h1 className="app-name">
             <span className="arabic">{t('app')}</span>
             <span className="latin">{t('subtitle')}</span>
@@ -616,6 +733,7 @@ function GateScreen({ state, t, onRetry, onSignOut }: {
         </div>
         <h2>{t(gateTitleKey(state))}</h2>
         <p className="muted">{t(gateBodyKey(state))}</p>
+        {canRedeem && <OtpCodeForm t={t} onAccepted={onAccepted} />}
         {gateAllowsRetry(state) && (
           <button className="primary full" onClick={onRetry}>{t('retry')}</button>
         )}
@@ -625,12 +743,14 @@ function GateScreen({ state, t, onRetry, onSignOut }: {
   )
 }
 
-/** Brand symbol: a lightning bolt on a slanted volt block (strength + speed). */
-function BrandMark({ big }: { big?: boolean }) {
+function AcceptInvitation({ t, onAccepted }: { t: T; onAccepted: () => void }) {
   return (
-    <div className={`brand-mark${big ? ' big' : ''}`} aria-hidden="true">
-      <Zap size={big ? 36 : 22} strokeWidth={2.6} />
-    </div>
+    <>
+      <Heading title={t('acceptInvitationTitle')} subtitle={t('acceptInvitationHint')} />
+      <section className="panel">
+        <OtpCodeForm t={t} onAccepted={onAccepted} />
+      </section>
+    </>
   )
 }
 
@@ -704,17 +824,7 @@ function Dashboard({ profile, t }: { profile: Profile; t: T }) {
 
   return (
     <>
-      <section className="dash-hero">
-        <span className="eyebrow">{t('today')} · {localDate()}</span>
-        <h1>{t('welcome')} {profile.full_name || profile.email || t('offline')}</h1>
-        <p>{t('heroSub')}</p>
-        <div className="hero-tags">
-          <span className="hero-tag"><ShieldCheck size={14} /> {roleLabel(profile.role, t)}</span>
-          <span className="hero-tag"><Dumbbell size={14} /> {t('valueStrength')}</span>
-          <span className="hero-tag"><Zap size={14} /> {t('valueSpeed')}</span>
-          <span className="hero-tag"><Trophy size={14} /> {t('valueTraining')}</span>
-        </div>
-      </section>
+      <Heading title={t('home')} subtitle={`${t('welcome')} · ${profile.full_name || profile.email || t('offline')}`} />
       {errorKey && <div className="error-box">{t(errorKey)}</div>}
       <div className="stats-grid">
         <Stat icon={Users} label={t('statsStudents')} value={stats.students} />
@@ -793,6 +903,7 @@ type StudentNote = {
   note_type: string
   created_at: string
   author_id: string
+  follow_up_status?: string
 }
 
 function Students({ profile, t }: { profile: Profile; t: T }) {
@@ -807,6 +918,7 @@ function Students({ profile, t }: { profile: Profile; t: T }) {
   const [bulkOpen, setBulkOpen] = useState(false)
   const [bulkText, setBulkText] = useState('')
   const [bulkBusy, setBulkBusy] = useState(false)
+  const [busy, setBusy] = useState(false)
   const [noteStudent, setNoteStudent] = useState<Student | null>(null)
   const [noteItems, setNoteItems] = useState<StudentNote[]>([])
   const [note, setNote] = useState('')
@@ -889,7 +1001,7 @@ function Students({ profile, t }: { profile: Profile; t: T }) {
     if (!isConfigured) { setNoteItems([]); return }
     const { data, error } = await supabase
       .from('student_notes')
-      .select('id,body,note_type,created_at,author_id')
+      .select('id,body,note_type,created_at,author_id,follow_up_status')
       .eq('student_id', student.id)
       .order('created_at', { ascending: false })
     if (error) notify(error.message)
@@ -910,6 +1022,15 @@ function Students({ profile, t }: { profile: Profile; t: T }) {
     if (error) { notify(error.message); return }
     notify(t('savedOk'))
     await openNotes(noteStudent)
+  }
+
+  async function updateNoteStatus(noteId: string, newStatus: string) {
+    if (!isConfigured) { notify(t('configMissing')); return }
+    setBusy(true)
+    const { error } = await supabase.from('student_notes').update({ follow_up_status: newStatus }).eq('id', noteId)
+    setBusy(false)
+    if (error) { notify(error.message); return }
+    notify(t('savedOk'))
   }
 
   async function importBulk() {
@@ -1035,7 +1156,17 @@ function Students({ profile, t }: { profile: Profile; t: T }) {
           {noteItems.map((item) => (
             <article className="notice note-item" key={item.id}>
               <p>{item.body}</p>
-              <small>{formatDateTime(item.created_at)} · {t(item.note_type)}</small>
+              <small>
+                {formatDateTime(item.created_at)} · {t(item.note_type)}
+                {item.follow_up_status && (
+                  <span className="pill">
+                    {item.follow_up_status === 'done' ? t('markHandled') : item.follow_up_status === 'open' ? t('followUpOpen') : t('followUpNone')}
+                  </span>
+                )}
+                {profile.role === 'owner' || profile.role === 'manager' ? (
+                  <button className="secondary small" onClick={() => updateNoteStatus(item.id, 'open')}>•••</button>
+                ) : null}
+              </small>
             </article>
           ))}
         </Modal>
@@ -1703,6 +1834,8 @@ function Messages({ profile, t }: { profile: Profile; t: T }) {
   const [inviteName, setInviteName] = useState('')
   const [inviteEmail, setInviteEmail] = useState('')
   const [inviteBusy, setInviteBusy] = useState(false)
+  const [deliveryMethodState, setDeliveryMethodState] = useState<'email' | 'whatsapp' | 'sms'>('email')
+  const [phoneNumber, setPhoneNumber] = useState('')
   const [memberPick, setMemberPick] = useState('')
   const [hasMore, setHasMore] = useState(false)
   const [olderBusy, setOlderBusy] = useState(false)
@@ -1940,22 +2073,33 @@ function Messages({ profile, t }: { profile: Profile; t: T }) {
     e.preventDefault()
     if (!isConfigured) { notify(t('configMissing')); return }
     setInviteBusy(true)
+
+    // Email keeps the old invite link + administrator approval flow.
+    // WhatsApp/SMS send a code that the invitee redeems after signing in.
+    const useOtp = deliveryMethodState !== 'email'
+
     const { data, error } = await supabase.functions.invoke('invite-user', {
       body: {
         email: inviteEmail.trim(),
         full_name: inviteName.trim(),
         role: 'coach',
         institution_id: profile.institution_id,
+        delivery_method: deliveryMethodState,
+        phone: deliveryMethodState === 'whatsapp' || deliveryMethodState === 'sms' ? phoneNumber : undefined,
+        use_otp: useOtp,
       },
     })
     setInviteBusy(false)
-    const functionError = (data as { error?: string } | null)?.error
-    if (error || functionError) { notify(error?.message || functionError || t('errorGeneric')); return }
-    notify(t('inviteSent'))
+    const payload = data as FunctionPayload | null
+    const errorCode = payload?.error || await functionErrorCode(error)
+    if (error || errorCode) { notify(inviteErrorMessage(errorCode, t)); return }
+
+    notify(useOtp ? t('otpSent') : t('inviteSent'))
     setInviteName('')
     setInviteEmail('')
+    setPhoneNumber('')
     setInviteOpen(false)
-    await loadPeople()
+    if (!useOtp) await loadPeople()
   }
 
   async function addMember() {
@@ -2085,6 +2229,27 @@ function Messages({ profile, t }: { profile: Profile; t: T }) {
             <p className="muted">{t('coachInviteHint')}</p>
             <label>{t('coachName')}<input required value={inviteName} onChange={(e) => setInviteName(e.target.value)} /></label>
             <label>{t('email')}<input required type="email" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} /></label>
+            <label>{t('deliveryMethod')}
+              <select
+                value={deliveryMethodState}
+                onChange={(e) => setDeliveryMethodState(e.target.value as 'email' | 'whatsapp' | 'sms')}
+              >
+                <option value="email">{t('email')}</option>
+                <option value="whatsapp">{t('whatsapp')}</option>
+                <option value="sms">{t('sms')}</option>
+              </select>
+            </label>
+            {deliveryMethodState !== 'email' && (
+              <label>{t('phone')}
+                <input
+                  required
+                  type="tel"
+                  inputMode="tel"
+                  value={phoneNumber}
+                  onChange={(e) => setPhoneNumber(e.target.value)}
+                />
+              </label>
+            )}
             <div className="modal-actions">
               <button type="button" className="secondary" onClick={() => setInviteOpen(false)}>{t('cancel')}</button>
               <button className="primary" disabled={inviteBusy}>{inviteBusy ? t('sendingInvite') : t('sendInvite')}</button>
@@ -2200,8 +2365,9 @@ function OwnerConsole({ profile, t }: { profile: Profile; t: T }) {
       body: { email: email.trim(), full_name: fullName.trim(), role: 'manager', institution_id: institution },
     })
     setBusy(false)
-    const functionError = (data as { error?: string } | null)?.error
-    if (error || functionError) { notify(error?.message || functionError || t('errorGeneric')); return }
+    const payload = data as FunctionPayload | null
+    const errorCode = payload?.error || await functionErrorCode(error)
+    if (error || errorCode) { notify(inviteErrorMessage(errorCode, t)); return }
     notify(t('inviteSent'))
     setEmail('')
     setFullName('')
@@ -2338,8 +2504,9 @@ function Team({ profile, t }: { profile: Profile; t: T }) {
       body: { email: email.trim(), full_name: fullName.trim(), role, institution_id: profile.institution_id },
     })
     setBusy(false)
-    const functionError = (data as { error?: string } | null)?.error
-    if (error || functionError) { notify(error?.message || functionError || t('errorGeneric')); return }
+    const payload = data as FunctionPayload | null
+    const errorCode = payload?.error || await functionErrorCode(error)
+    if (error || errorCode) { notify(inviteErrorMessage(errorCode, t)); return }
     notify(t('inviteSent'))
     setEmail('')
     setFullName('')
@@ -2635,6 +2802,7 @@ function ClassManagement({ profile, t }: { profile: Profile; t: T }) {
 function FollowUpQueue({ profile, t }: { profile: Profile; t: T }) {
   const [items, setItems] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [updating, setUpdating] = useState<string | null>(null)
   const admin = ['owner', 'manager', 'admin'].includes(profile.role)
 
   async function load() {
@@ -2658,6 +2826,20 @@ function FollowUpQueue({ profile, t }: { profile: Profile; t: T }) {
 
   useEffect(() => { void load() }, [profile.institution_id])
 
+  async function updateStatus(studentId: string, newStatus: string) {
+    setUpdating(studentId)
+    if (!isConfigured || !profile.institution_id) { notify(t('configMissing')); setUpdating(null); return }
+    const { error } = await supabase
+      .from('absence_followups')
+      .update({ status: newStatus, last_follow_up_at: new Date().toISOString() })
+      .eq('student_id', studentId)
+      .eq('institution_id', profile.institution_id)
+    if (error) { notify(error.message); setUpdating(null); return }
+    notify(t('savedOk'))
+    setUpdating(null)
+    await load()
+  }
+
   return (
     <>
       <Heading title={t('absenceFollowups')} />
@@ -2673,6 +2855,16 @@ function FollowUpQueue({ profile, t }: { profile: Profile; t: T }) {
                   {t(item.status)}
                 </span>
                 <small>{item.streak} {t('absences')} · {t('lastFollowUp')}: {item.last_follow_up_at ? formatDateTime(item.last_follow_up_at) : t('never')}</small>
+                {admin && (
+                  <div className="action-btns">
+                    {item.status === 'open' && (
+                      <button className="secondary small" onClick={() => updateStatus(item.student_id, 'done')}>{t('markFollowUpDone')}</button>
+                    )}
+                    {item.status !== 'done' && (
+                      <button className="secondary small" onClick={() => updateStatus(item.student_id, 'open')}>{t('markFollowUpOpen')}</button>
+                    )}
+                  </div>
+                )}
               </div>
             ))}
           </div>

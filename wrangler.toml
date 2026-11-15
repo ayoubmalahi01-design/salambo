@@ -1,0 +1,7 @@
+name = "the-trainers"
+compatibility_date = "2026-11-01"
+
+# Cloudflare Workers Static Assets: serves the Vite build output (dist) as a single-page app.
+[assets]
+directory = "./dist"
+not_found_handling = "single-page-application"
