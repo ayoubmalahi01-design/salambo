@@ -25,6 +25,7 @@ import {
   loadReportDraft, saveReportDraft, clearReportDraft, hasDraftContent,
   type ReportCounts,
 } from './lib/report-draft'
+import { buildReportDocument, reportFileName } from './lib/report-export'
 import {
   pushEnv, pushNotification, requestPushPermission, type PushPermission,
 } from './lib/push-notify'
@@ -116,6 +117,8 @@ type ReportRow = {
   notes?: string | null
   status: string
   is_finalized: boolean
+  shift_start?: string | null
+  shift_end?: string | null
   reviewed_by?: string | null
   created_at: string
 }
@@ -357,6 +360,63 @@ export default function App() {
     void loadProfile(session.user.id).finally(() => setBusy(false))
   }
 
+  async function uploadMyAvatar(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const me = isLocalMode ? localProfile : profile
+    if (!me) return
+    if (!isConfigured) { notify(t('configMissing')); return }
+    if (!/image\/(png|jpe?g|webp)/.test(file.type)) { notify(t('invalidImage')); return }
+    if (file.size > 2 * 1024 * 1024) { notify(t('imageTooLarge')); return }
+    setMyAvatarBusy(true)
+    const extension = file.name.split('.').pop() || 'png'
+    const avatar_path = `${me.institution_id || 'platform'}/${me.id}/avatar-${Date.now()}.${extension}`
+    const { error: uploadError } = await supabase.storage.from('trainer-avatars').upload(avatar_path, file, { upsert: false, contentType: file.type })
+    if (uploadError) { notify(uploadError.message); setMyAvatarBusy(false); return }
+    const { data } = await supabase.storage.from('trainer-avatars').createSignedUrl(avatar_path, 3600)
+    if (!data?.signedUrl) { notify(t('errorGeneric')); setMyAvatarBusy(false); return }
+    const { error: updateError } = await supabase.from('profiles').update({ avatar_path }).eq('id', me.id)
+    if (updateError) { notify(updateError.message); setMyAvatarBusy(false); return }
+    setMyAvatarPath(avatar_path)
+    setMyAvatarSignedUrl(data.signedUrl)
+    setMyAvatarBusy(false)
+    notify(t('savedOk'))
+    e.target.value = ''
+  }
+
+  async function deleteMyAvatar() {
+    const me = isLocalMode ? localProfile : profile
+    if (!me) return
+    setMyAvatarBusy(true)
+    const { error } = await supabase.from('profiles').update({ avatar_path: null }).eq('id', me.id)
+    setMyAvatarBusy(false)
+    if (error) { notify(error.message); return }
+    setMyAvatarPath(null)
+    setMyAvatarSignedUrl(null)
+    notify(t('savedOk'))
+  }
+
+  const [myAvatarPath, setMyAvatarPath] = useState<string | null>(null)
+  const [myAvatarSignedUrl, setMyAvatarSignedUrl] = useState<string | null>(null)
+  const [myAvatarBusy, setMyAvatarBusy] = useState(false)
+
+  // Resolve the signed storage URL for the signed-in user's avatar so the
+  // sidebar shows the real photo instead of initials after a reload. These
+  // hooks sit above the early returns on purpose so the hook order stays stable.
+  useEffect(() => {
+    let alive = true
+    async function resolveMyAvatar() {
+      const path = (isLocalMode ? localProfile : profile)?.avatar_path || null
+      setMyAvatarPath(path)
+      setMyAvatarSignedUrl(null)
+      if (!path) return
+      const { data } = await supabase.storage.from('trainer-avatars').createSignedUrl(path, 3600)
+      if (alive) setMyAvatarSignedUrl(data?.signedUrl || null)
+    }
+    void resolveMyAvatar()
+    return () => { alive = false }
+  }, [isLocalMode, profile?.avatar_path, profile?.id, localProfile?.avatar_path, localProfile?.id])
+
   if (passwordSetup) {
     return (
       <RecoveryScreen
@@ -390,6 +450,7 @@ export default function App() {
   }
 
   const viewProfile: Profile | null = isLocalMode ? localProfile : profile
+
   if (!viewProfile) {
     return (
       <GateScreen
@@ -455,8 +516,23 @@ export default function App() {
       <div className="layout">
         <aside className={`sidebar ${menu ? 'open' : ''}`}>
           <div className="user-mini">
-            <div className="avatar">{viewProfile.full_name?.slice(0, 1) || 'T'}</div>
+            <div className="avatar">
+              {myAvatarPath ? (
+                <img src={myAvatarSignedUrl || myAvatarPath} alt={viewProfile.full_name || 'avatar'} className="avatar-img" />
+              ) : (
+                <span>{viewProfile.full_name?.slice(0, 1) || 'T'}</span>
+              )}
+              <button type="button" className="avatar-upload-btn" onClick={() => document.getElementById('avatar-upload-me')?.click()} disabled={myAvatarBusy}>
+                {t('changeAvatar')}
+              </button>
+            </div>
             <div><b>{viewProfile.full_name || viewProfile.email || t('offline')}</b><small>{roleLabel(viewProfile.role, t)}</small></div>
+            {myAvatarPath && (
+              <button className="icon-btn" onClick={() => { void deleteMyAvatar() }} disabled={myAvatarBusy} title={t('deleteAvatar')} aria-label={t('deleteAvatar')}>
+                <Trash2 size={15} />
+              </button>
+            )}
+            <input type="file" accept="image/png,image/jpeg,image/webp" id="avatar-upload-me" onChange={(e) => { void uploadMyAvatar(e); e.target.value = '' }} hidden />
           </div>
           <nav>
             {navItems.map(([to, Icon, key, badge]) => (
@@ -1648,6 +1724,49 @@ function Reports({ profile, t }: { profile: Profile; t: T }) {
     notify(t('savedOk'))
     await load()
   }
+
+  async function exportWord(row: ReportRow) {
+    if (!isConfigured) { notify(t('configMissing')); return }
+    try {
+      const blob = await buildReportDocument({
+        reportDate: row.report_date,
+        coachName: row.coach_name_snapshot || '—',
+        counts: {
+          present_count: row.present_count,
+          absent_count: row.absent_count,
+          late_count: row.late_count,
+          injured_count: row.injured_count,
+          excused_count: row.excused_count,
+        },
+        notes: row.notes ?? null,
+        shiftStart: row.shift_start ?? null,
+        shiftEnd: row.shift_end ?? null,
+      })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = reportFileName({
+        reportDate: row.report_date,
+        coachName: row.coach_name_snapshot || 'report',
+        counts: {
+          present_count: row.present_count,
+          absent_count: row.absent_count,
+          late_count: row.late_count,
+          injured_count: row.injured_count,
+          excused_count: row.excused_count,
+        },
+        notes: row.notes ?? null,
+      })
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+      notify(t('exportedWord'))
+    } catch {
+      notify(t('errorGeneric'))
+    }
+  }
+
   return (
     <>
       <Heading
@@ -1694,6 +1813,9 @@ function Reports({ profile, t }: { profile: Profile; t: T }) {
                       )}
                       {admin && row.is_finalized && row.status !== 'reviewed' && (
                         <button className="secondary" onClick={() => review(row.id)}>{t('approveReport')}</button>
+                      )}
+                      {row.is_finalized && (
+                        <button className="secondary" onClick={() => { void exportWord(row) }}>{t('exportWord')}</button>
                       )}
                     </td>
                   </tr>
@@ -2480,9 +2602,23 @@ function OwnerAccountRow({ person, institutions, t, onChanged }: {
   useEffect(() => {
     setRole(isAccountRole(person.role) ? person.role : 'coach')
     setInstitutionId(person.institution_id ?? '')
-    setAvatarPath(person.avatar_path || null)
-    setAvatarSignedUrl(null)
-  }, [person.role, person.institution_id, person.avatar_path, person.id])
+  }, [person.role, person.institution_id, person.id])
+
+  // Resolve a fresh signed URL whenever the avatar path changes so a stored
+  // avatar renders immediately after a reload instead of showing initials.
+  useEffect(() => {
+    let alive = true
+    async function resolveAvatar() {
+      const path = person.avatar_path || null
+      setAvatarPath(path)
+      setAvatarSignedUrl(null)
+      if (!path) return
+      const { data } = await supabase.storage.from('trainer-avatars').createSignedUrl(path, 3600)
+      if (alive) setAvatarSignedUrl(data?.signedUrl || null)
+    }
+    void resolveAvatar()
+    return () => { alive = false }
+  }, [person.avatar_path, person.id])
 
   async function run(action: 'approve' | 'reject' | 'suspend' | 'reactivate' | 'update') {
     if (busy || isOwnerAccount) return
@@ -2509,6 +2645,7 @@ function OwnerAccountRow({ person, institutions, t, onChanged }: {
     const file = e.target.files?.[0]
     if (!file) return
     if (!/image\/(png|jpe?g|webp)/.test(file.type)) { notify(t('invalidImage')); return }
+    if (file.size > 2 * 1024 * 1024) { notify(t('imageTooLarge')); return }
     setBusy(true)
     const extension = file.name.split('.').pop() || 'png'
     const avatar_path = `${person.institution_id}/${person.id}/avatar-${Date.now()}.${extension}`
@@ -2517,7 +2654,7 @@ function OwnerAccountRow({ person, institutions, t, onChanged }: {
       .upload(avatar_path, file, { upsert: false, contentType: file.type })
     if (uploadError) { notify(uploadError.message); setBusy(false); return }
     const { data } = await supabase.storage.from('trainer-avatars').createSignedUrl(avatar_path, 3600)
-    if (!data?.signedUrl) { notify(t('savedOk')); setBusy(false); return }
+    if (!data?.signedUrl) { notify(t('errorGeneric')); setBusy(false); return }
     setAvatarSignedUrl(data.signedUrl)
     setAvatarPath(avatar_path)
     const { error: updateError } = await supabase.from('profiles').update({ avatar_path }).eq('id', person.id)

@@ -1,0 +1,163 @@
+﻿{
+    "generated":  "2026-11-15T18:23:09.1435082+01:00",
+    "url":  "https://rxkyryaplszuklagvidi.supabase.co",
+    "ref":  "rxkyryaplszuklagvidi",
+    "tables":  [
+                   {
+                       "table":  "institutions",
+                       "status":  200,
+                       "exists":  true,
+                       "columns":  "Count,Length,LongLength,Rank,SyncRoot,IsReadOnly,IsFixedSize,IsSynchronized",
+                       "sample":  "[]"
+                   },
+                   {
+                       "table":  "profiles",
+                       "status":  200,
+                       "exists":  true,
+                       "columns":  "Count,Length,LongLength,Rank,SyncRoot,IsReadOnly,IsFixedSize,IsSynchronized",
+                       "sample":  "[]"
+                   },
+                   {
+                       "table":  "classes",
+                       "status":  200,
+                       "exists":  true,
+                       "columns":  "Count,Length,LongLength,Rank,SyncRoot,IsReadOnly,IsFixedSize,IsSynchronized",
+                       "sample":  "[]"
+                   },
+                   {
+                       "table":  "students",
+                       "status":  200,
+                       "exists":  true,
+                       "columns":  "Count,Length,LongLength,Rank,SyncRoot,IsReadOnly,IsFixedSize,IsSynchronized",
+                       "sample":  "[]"
+                   },
+                   {
+                       "table":  "student_medical_records",
+                       "status":  200,
+                       "exists":  true,
+                       "columns":  "Count,Length,LongLength,Rank,SyncRoot,IsReadOnly,IsFixedSize,IsSynchronized",
+                       "sample":  "[]"
+                   },
+                   {
+                       "table":  "coach_shifts",
+                       "status":  200,
+                       "exists":  true,
+                       "columns":  "Count,Length,LongLength,Rank,SyncRoot,IsReadOnly,IsFixedSize,IsSynchronized",
+                       "sample":  "[]"
+                   },
+                   {
+                       "table":  "daily_reports",
+                       "status":  200,
+                       "exists":  true,
+                       "columns":  "Count,Length,LongLength,Rank,SyncRoot,IsReadOnly,IsFixedSize,IsSynchronized",
+                       "sample":  "[]"
+                   },
+                   {
+                       "table":  "report_templates",
+                       "status":  200,
+                       "exists":  true,
+                       "columns":  "Count,Length,LongLength,Rank,SyncRoot,IsReadOnly,IsFixedSize,IsSynchronized",
+                       "sample":  "[]"
+                   },
+                   {
+                       "table":  "report_exports",
+                       "status":  200,
+                       "exists":  true,
+                       "columns":  "Count,Length,LongLength,Rank,SyncRoot,IsReadOnly,IsFixedSize,IsSynchronized",
+                       "sample":  "[]"
+                   },
+                   {
+                       "table":  "conversations",
+                       "status":  200,
+                       "exists":  true,
+                       "columns":  "Count,Length,LongLength,Rank,SyncRoot,IsReadOnly,IsFixedSize,IsSynchronized",
+                       "sample":  "[]"
+                   },
+                   {
+                       "table":  "conversation_members",
+                       "status":  200,
+                       "exists":  true,
+                       "columns":  "Count,Length,LongLength,Rank,SyncRoot,IsReadOnly,IsFixedSize,IsSynchronized",
+                       "sample":  "[]"
+                   },
+                   {
+                       "table":  "messages",
+                       "status":  200,
+                       "exists":  true,
+                       "columns":  "Count,Length,LongLength,Rank,SyncRoot,IsReadOnly,IsFixedSize,IsSynchronized",
+                       "sample":  "[]"
+                   },
+                   {
+                       "table":  "message_reads",
+                       "status":  200,
+                       "exists":  true,
+                       "columns":  "Count,Length,LongLength,Rank,SyncRoot,IsReadOnly,IsFixedSize,IsSynchronized",
+                       "sample":  "[]"
+                   },
+                   {
+                       "table":  "attendance_records",
+                       "status":  200,
+                       "exists":  true,
+                       "columns":  "Count,Length,LongLength,Rank,SyncRoot,IsReadOnly,IsFixedSize,IsSynchronized",
+                       "sample":  "[]"
+                   },
+                   {
+                       "table":  "absence_followups",
+                       "status":  200,
+                       "exists":  true,
+                       "columns":  "Count,Length,LongLength,Rank,SyncRoot,IsReadOnly,IsFixedSize,IsSynchronized",
+                       "sample":  "[]"
+                   },
+                   {
+                       "table":  "invitations",
+                       "status":  401,
+                       "exists":  false,
+                       "columns":  "",
+                       "sample":  "{\"code\":\"42501\",\"details\":null,\"hint\":\"Grant the required privileges to the current role with: GRANT SELECT ON public.invitations TO anon;\",\"message\":\"permission denied for table invitations\"}"
+                   },
+                   {
+                       "table":  "otp_codes",
+                       "status":  401,
+                       "exists":  false,
+                       "columns":  "",
+                       "sample":  "{\"code\":\"42501\",\"details\":null,\"hint\":\"Grant the required privileges to the current role with: GRANT SELECT ON public.otp_codes TO anon;\",\"message\":\"permission denied for table otp_codes\"}"
+                   },
+                   {
+                       "table":  "admin_notices",
+                       "status":  200,
+                       "exists":  true,
+                       "columns":  "Count,Length,LongLength,Rank,SyncRoot,IsReadOnly,IsFixedSize,IsSynchronized",
+                       "sample":  "[]"
+                   },
+                   {
+                       "table":  "audit_logs",
+                       "status":  200,
+                       "exists":  true,
+                       "columns":  "Count,Length,LongLength,Rank,SyncRoot,IsReadOnly,IsFixedSize,IsSynchronized",
+                       "sample":  "[]"
+                   },
+                   {
+                       "table":  "coach_notebooks",
+                       "status":  200,
+                       "exists":  true,
+                       "columns":  "Count,Length,LongLength,Rank,SyncRoot,IsReadOnly,IsFixedSize,IsSynchronized",
+                       "sample":  "[]"
+                   },
+                   {
+                       "table":  "notifications",
+                       "status":  200,
+                       "exists":  true,
+                       "columns":  "Count,Length,LongLength,Rank,SyncRoot,IsReadOnly,IsFixedSize,IsSynchronized",
+                       "sample":  "[]"
+                   },
+                   {
+                       "table":  "student_notes",
+                       "status":  200,
+                       "exists":  true,
+                       "columns":  "Count,Length,LongLength,Rank,SyncRoot,IsReadOnly,IsFixedSize,IsSynchronized",
+                       "sample":  "[]"
+                   }
+               ],
+    "storageBuckets":  "[]",
+    "inviteUserProbe":  "OPTIONS ERR 404"
+}
