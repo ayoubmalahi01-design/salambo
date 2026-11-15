@@ -896,7 +896,9 @@ ALTER TABLE public.otp_codes ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE public.invitations FROM anon, authenticated;
 REVOKE ALL ON TABLE public.otp_codes FROM anon, authenticated;
 
--- Institution administrators may read their own invitations. Writes are
+-- The platform owner and institution managers may read invitations. Institution
+-- administrators and coaches are not allowed to invite or review accounts in the
+-- final permission model, so they cannot read invitation rows either. Writes are
 -- service-role only (the Edge Functions); no browser can forge an invitation.
 GRANT SELECT ON TABLE public.invitations TO authenticated;
 GRANT ALL ON TABLE public.invitations TO service_role;
@@ -911,7 +913,7 @@ CREATE POLICY invitations_select_admin
     public.is_platform_owner()
     OR (
       institution_id = public.current_institution_id()
-      AND public.current_app_role() IN ('manager', 'admin')
+      AND public.current_app_role() = 'manager'
     )
   );
 
@@ -1167,8 +1169,11 @@ $fn$;
 -- 7. verify_otp_code
 --    Atomic: locks the invitation and the live OTP, counts failed attempts,
 --    checks the signed-in account against the invitation recipient, consumes
---    the OTP, accepts the invitation, activates the profile and writes the
---    audit record. Either all of it commits or none of it does.
+--    the OTP, accepts the invitation, links the profile to the institution/role
+--    and writes the audit record. Either all of it commits or none of it does.
+--    A new account (or a rejected/suspended one) is linked but remains pending
+--    for Owner/Director review. Only an already-active account of the same
+--    institution stays active.
 --
 --    p_user_id is supplied by the verify-otp Edge Function after validating
 --    the caller's JWT. It is never accepted from a browser directly.
@@ -1283,6 +1288,10 @@ BEGIN
 
   IF v_role IS NULL OR v_role = 'owner' THEN
     RETURN jsonb_build_object('ok', false, 'error', 'owner_role_forbidden');
+  END IF;
+
+  IF v_inviter_id = p_user_id THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'self_invitation_forbidden');
   END IF;
 
   IF v_institution_id IS NULL
@@ -1452,7 +1461,10 @@ BEGIN
     );
   END IF;
 
-  -- Success: consume this code, revoke siblings, accept and activate.
+  -- Success: consume this code, revoke siblings, accept the invitation and
+  -- link the profile. New accounts stay pending until an authorised reviewer
+  -- approves them; an already-active member of the same institution stays
+  -- active so an invitation can refresh their role without a lockout.
   UPDATE public.otp_codes
      SET used_at = now(), updated_at = now()
    WHERE id = v_otp_id;
@@ -1474,12 +1486,24 @@ BEGIN
   UPDATE public.profiles
      SET role = v_role,
          institution_id = v_institution_id,
-         account_status = 'active',
+         account_status = CASE
+           WHEN v_profile_status = 'active'
+            AND v_profile_institution_id = v_institution_id THEN 'active'
+           ELSE 'pending'
+         END,
          full_name = COALESCE(NULLIF(v_invited_name, ''), full_name),
          email = COALESCE(NULLIF(v_invited_email, ''), email),
          phone = COALESCE(NULLIF(v_invited_phone, ''), phone),
-         approved_by = COALESCE(v_inviter_id, approved_by),
-         approved_at = now(),
+         approved_by = CASE
+           WHEN v_profile_status = 'active'
+            AND v_profile_institution_id = v_institution_id THEN approved_by
+           ELSE NULL
+         END,
+         approved_at = CASE
+           WHEN v_profile_status = 'active'
+            AND v_profile_institution_id = v_institution_id THEN approved_at
+           ELSE NULL
+         END,
          created_by = COALESCE(created_by, v_inviter_id),
          updated_at = now()
    WHERE id = p_user_id;
@@ -1503,7 +1527,12 @@ BEGIN
       'role', v_role::text,
       'institution_id', v_institution_id,
       'delivery_method', v_delivery_method::text,
-      'user_id', p_user_id
+      'user_id', p_user_id,
+      'account_status', CASE
+        WHEN v_profile_status = 'active'
+         AND v_profile_institution_id = v_institution_id THEN 'active'
+        ELSE 'pending'
+      END
     )
   );
 

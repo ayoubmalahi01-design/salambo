@@ -222,9 +222,18 @@ test('the invitee redeems the code from their own session', () => {
 test('the role matrix cannot produce an owner', () => {
   assert.match(invite, /owner:\s*\['manager',\s*'admin',\s*'coach'\]/)
   assert.match(invite, /manager:\s*\['admin',\s*'coach'\]/)
-  assert.match(invite, /admin:\s*\['coach'\]/)
-  assert.match(invite, /coach:\s*\['coach'\]/)
+  assert.match(invite, /admin:\s*\[\]/)
+  assert.match(invite, /coach:\s*\[\]/)
   assert.match(invite, /role === 'owner'/)
+})
+
+test('OTP acceptance does not auto-activate a new account', () => {
+  const start = migration.indexOf('UPDATE public.profiles')
+  const end = migration.indexOf('WHERE id = p_user_id;', start)
+  const body = migration.slice(start, end)
+  assert.match(body, /ELSE 'pending'/)
+  assert.doesNotMatch(body, /approved_by = COALESCE\(v_inviter_id/)
+  assert.doesNotMatch(migration, /invitation_accepted[\s\S]{0,400}account_status', 'active'/)
 })
 
 test('public configuration examples contain placeholders only', () => {

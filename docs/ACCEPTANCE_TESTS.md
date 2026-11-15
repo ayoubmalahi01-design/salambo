@@ -1,18 +1,33 @@
-# اختبارات القبول اليدوية
+# Acceptance test plan (run after Supabase deployment)
 
-أنشئ 4 حسابات منفصلة: مالك، مدير، إداري، مدرب (ومؤسستين A وB).
+Use separate test identities for each role and at least two institutions. Do not use production student records during this test.
 
-| # | السيناريو | النتيجة المتوقعة |
-|---|-----------|------------------|
-| 1 | المالك ينشئ المؤسسة A ويدعو مديرها | يصل بريد دعوة، والمدير يفعّل كلمة المرور ويدخل |
-| 2 | المدير يدعو مدرباً | الحساب «بانتظار الموافقة» حتى تفعيله من الفريق |
-| 3 | مدرب غير مفعّل يحاول الدخول | تظهر شاشة الانتظار فقط |
-| 4 | الإداري يضيف تلميذاً ويستورد قائمة من Excel | التلاميذ يظهرون، والأرقام المكررة تُتجاهل |
-| 5 | المدرب يبدأ حصة ويسجّل الحضور | تُحفظ السجلات، وإعادة الفتح تحمّل الحالة السابقة |
-| 6 | المدرب ينشئ تقريراً يومياً (مسودة ثم إرسال) | الأعداد تُملأ تلقائياً، والإدارة تعتمده |
-| 7 | مدربان في نفس المؤسسة | كل منهما لا يرى تقارير وكراس الآخر |
-| 8 | مستخدم من المؤسسة B يفتح بيانات A | لا يرى أي شيء (عزل RLS) |
-| 9 | محادثة خاصة وإرسال صورة وتسجيل صوتي | تصل فورياً للمشاركين فقط |
-| 10 | السجلات الطبية | تظهر للإدارة فقط، لا للمدرب |
-| 11 | تثبيت التطبيق على Android وiPhone | يعمل كتطبيق مستقل بأيقونة تدرّب |
-| 12 | تبديل اللغة عربي/فرنسي/إنجليزي | الاتجاه RTL/LTR يتغيّر وكل النصوص مترجمة |
+## Identity and hierarchy
+- [ ] Invite `ayoubmalleh772@gmail.com` after SQL installation; verify the profile is `owner`, `active`, and has `institution_id IS NULL`.
+- [ ] Sign in as owner; create two institutions and invite one manager to each.
+- [ ] Verify a manager can see only their own institution and cannot create institutions.
+- [ ] Verify a manager can invite coaches and admins, but an admin can invite coaches only.
+- [ ] Verify invited accounts remain pending until approved (except owner-appointed managers).
+- [ ] Verify a coach cannot change their own role, institution, or account status through direct Supabase API calls.
+
+## Tenant and privacy boundaries
+- [ ] Institution A users cannot read or modify Institution B students, reports, attendance, notices, messages, or audit logs.
+- [ ] Coach A cannot select Coach B daily reports, including direct REST requests by report id.
+- [ ] Coach A cannot select, update, or delete Coach B notebook rows.
+- [ ] A coach cannot read medical records or objects in `trainer-medical`.
+- [ ] An institution admin can read medical records only for their institution.
+- [ ] Medical detail values are redacted in platform-wide audit snapshots.
+- [ ] A finalized report cannot be updated or deleted through the API.
+
+## Workflows and devices
+- [ ] Start and end a coach shift; verify timestamps and one-open-shift constraint.
+- [ ] Record attendance for a class and verify duplicate student/date entries are rejected/upserted as expected.
+- [ ] Submit a report and verify the linked shift timestamps are accurate.
+- [ ] Publish an admin notice; verify a notification is created for other active members, and only each recipient can mark their notification read.
+- [ ] Send text, image, document, and voice messages; verify signed URLs and institution storage isolation.
+- [ ] Test dictation in Arabic, French, and English on supported browsers; verify graceful fallback when unsupported.
+- [ ] Install the PWA on a current Android phone and iPhone; verify navigation, upload, microphone permission, and layout.
+
+## Release gate
+
+Do not mark production acceptance complete until every applicable test above passes against the deployed Supabase project and on real target devices. Save test results and timestamps with the release record.

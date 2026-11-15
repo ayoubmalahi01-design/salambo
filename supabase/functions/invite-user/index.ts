@@ -45,11 +45,13 @@ type Actor = {
 }
 
 // The role matrix is intentionally explicit. No path may produce an owner.
+// Owner and Director (manager) are the only planners. Administration and Coach
+// cannot invite anybody.
 const INVITE_MATRIX: Record<Role, InvitableRole[]> = {
   owner: ['manager', 'admin', 'coach'],
   manager: ['admin', 'coach'],
-  admin: ['coach'],
-  coach: ['coach'],
+  admin: [],
+  coach: [],
 }
 
 function textField(body: Record<string, unknown>, key: string, max: number): string {
@@ -135,10 +137,6 @@ serve(async (req) => {
       throw new HttpError(400, 'invalid_delivery_method')
     }
 
-    const isCoach = actor.role === 'coach'
-    if (isCoach && role !== 'coach') {
-      throw new HttpError(403, 'Coaches may invite coaches only')
-    }
     if (!INVITE_MATRIX[actor.role].includes(role)) {
       throw new HttpError(403, 'role_not_allowed')
     }
@@ -185,6 +183,86 @@ serve(async (req) => {
     // Legacy email invitation (no OTP)
     // ---------------------------------------------------------------------
     if (!useOtp) {
+      // An email may already belong to an account. Re-inviting must not fail
+      // with a dead end: the authorised inviter can move that account to the
+      // requested role/institution, but it still goes back to `pending` for a
+      // human review. No e-mail is sent on this path, so the caller is told
+      // explicitly to ask the user to sign in.
+      const { data: existingRows, error: existingError } = await admin
+        .from('profiles')
+        .select('id, role, account_status, institution_id, created_by')
+        .ilike('email', likeLiteral(email))
+        .limit(1)
+      if (existingError) throw new HttpError(500, 'profile_lookup_failed')
+
+      const existing = (existingRows ?? [])[0] as
+        | {
+          id: string
+          role: string
+          account_status: string
+          institution_id: string | null
+          created_by: string | null
+        }
+        | undefined
+
+      if (existing) {
+        if (existing.id === actor.id) throw new HttpError(403, 'self_invitation_forbidden')
+        if (existing.role === 'owner') throw new HttpError(403, 'role_not_allowed')
+        if (existing.account_status === 'suspended') throw new HttpError(403, 'account_suspended')
+        if (
+          existing.account_status === 'active'
+          && existing.institution_id
+          && existing.institution_id !== institutionId
+        ) {
+          throw new HttpError(409, 'different_institution')
+        }
+
+        const { data: updated, error: updateError } = await admin
+          .from('profiles')
+          .update({
+            institution_id: institutionId,
+            role,
+            account_status: 'pending',
+            full_name: fullName,
+            email,
+            phone: phone || null,
+            created_by: existing.created_by ?? actor.id,
+            approved_by: null,
+            approved_at: null,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', existing.id)
+          .select('id')
+          .single()
+
+        if (updateError || !updated) throw new HttpError(500, 'profile_update_failed')
+
+        await admin.from('audit_logs').insert({
+          institution_id: institutionId,
+          actor_id: actor.id,
+          action: 'invitation_existing_account_pending',
+          table_name: 'profiles',
+          record_id: existing.id,
+          old_data: {
+            role: existing.role,
+            institution_id: existing.institution_id,
+            account_status: existing.account_status,
+          },
+          new_data: { role, delivery_method: 'email', account_status: 'pending' },
+        }).then(() => undefined, () => undefined)
+
+        return json(req, {
+          ok: true,
+          user_id: existing.id,
+          profile_id: existing.id,
+          delivery_method: 'email',
+          account_created: false,
+          existing_account: true,
+          account_status: 'pending',
+          message: 'existing_account_pending',
+        })
+      }
+
       const { data: invited, error: inviteError } = await admin.auth.admin.inviteUserByEmail(email, {
         data: { full_name: fullName, role, institution_id: institutionId },
         redirectTo: `${appBaseUrl()}/`,
@@ -200,25 +278,33 @@ serve(async (req) => {
       const userId = invited?.user?.id
       if (!userId) throw new HttpError(502, 'invitation_email_failed')
 
-      const autoActive = actor.role === 'owner' && role === 'manager'
-      const { error: profileError } = await admin
+      // Every email invitation stays pending until the Owner (platform-wide) or
+      // the Director (inside their institution) reviews it. There is no
+      // owner-invited-manager shortcut and no implicit activation.
+      //
+      // The upsert is verified with .select().single(): a zero-row update used
+      // to look like success when the Auth trigger/profile link was missing.
+      const { data: profileRow, error: profileError } = await admin
         .from('profiles')
-        .update({
+        .upsert({
+          id: userId,
           institution_id: institutionId,
           role,
-          account_status: autoActive ? 'active' : 'pending',
+          account_status: 'pending',
           full_name: fullName,
           email,
           phone: phone || null,
           created_by: actor.id,
-          approved_by: autoActive ? actor.id : null,
-          approved_at: autoActive ? new Date().toISOString() : null,
-        })
-        .eq('id', userId)
+          approved_by: null,
+          approved_at: null,
+        }, { onConflict: 'id' })
+        .select('id')
+        .single()
 
-      if (profileError) {
+      if (profileError || !profileRow) {
         // The auth user may already have data attached, so never delete it
-        // here. The pending profile can be repaired by an administrator.
+        // here. The pending profile can be repaired by an owner or by
+        // ensure_my_profile() when the invitee signs in.
         throw new HttpError(500, 'profile_update_failed')
       }
 
@@ -229,14 +315,16 @@ serve(async (req) => {
         table_name: 'profiles',
         record_id: userId,
         old_data: null,
-        new_data: { role, delivery_method: 'email' },
+        new_data: { role, delivery_method: 'email', account_status: 'pending' },
       }).then(() => undefined, () => undefined)
 
       return json(req, {
         ok: true,
         user_id: userId,
+        profile_id: userId,
         delivery_method: 'email',
         account_created: true,
+        account_status: 'pending',
         message: 'invitation_email_sent',
       })
     }
@@ -263,6 +351,9 @@ serve(async (req) => {
     const existingProfile = (existingProfiles ?? [])[0] as
       | { id: string; account_status: string; institution_id: string | null; role: string }
       | undefined
+    if (existingProfile?.id === actor.id) {
+      throw new HttpError(403, 'self_invitation_forbidden')
+    }
     if (existingProfile?.role === 'owner') {
       throw new HttpError(403, 'role_not_allowed')
     }

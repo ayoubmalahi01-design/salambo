@@ -18,6 +18,10 @@ import {
   accountGate, gateTitleKey, gateBodyKey, gateAllowsRetry, type GateState,
 } from './lib/account-gate'
 import {
+  ASSIGNABLE_ROLES, INVITE_MATRIX, canInvite, canReviewAccount, isAccountRole,
+  type AccountRole,
+} from './lib/account-policy'
+import {
   loadReportDraft, saveReportDraft, clearReportDraft, hasDraftContent,
   type ReportCounts,
 } from './lib/report-draft'
@@ -50,6 +54,34 @@ type Person = {
   email: string
   role?: string
   account_status?: string
+  institution_id?: string | null
+  created_at?: string
+}
+type AccountRow = Profile & {
+  created_at?: string
+  approved_by?: string | null
+  approved_at?: string | null
+}
+type InvitationRow = {
+  id: string
+  invited_email: string | null
+  invited_name: string | null
+  role: string
+  institution_id: string
+  status: string
+  delivery_method: string
+  expires_at: string
+  created_at: string
+}
+type PendingInvitation = {
+  id: string
+  role: string
+  institution_id: string
+  institution_name?: string | null
+  invited_email?: string | null
+  invited_name?: string | null
+  delivery_method?: string | null
+  expires_at?: string | null
 }
 type Conversation = {
   id: string
@@ -219,11 +251,29 @@ export default function App() {
 
   async function loadProfile(id: string) {
     if (!isConfigured) return
-    const { data, error } = await supabase.from('profiles').select('*').eq('id', id).maybeSingle()
+    let { data, error } = await supabase.from('profiles').select('*').eq('id', id).maybeSingle()
     if (error) {
       setProfileError(error.message)
       setProfile(null)
       return
+    }
+    if (!data) {
+      // Repair an Auth user whose trigger-created profile is missing. The RPC
+      // only ever creates a safe coach/pending row for the caller; the exact
+      // confirmed owner email may bootstrap the owner when none exists.
+      const ensured = await supabase.rpc('ensure_my_profile')
+      if (ensured.error) {
+        setProfileError(ensured.error.message)
+        setProfile(null)
+        return
+      }
+      const retry = await supabase.from('profiles').select('*').eq('id', id).maybeSingle()
+      if (retry.error) {
+        setProfileError(retry.error.message)
+        setProfile(null)
+        return
+      }
+      data = retry.data
     }
     setProfileError('')
     setProfile((data as Profile | null) ?? null)
@@ -594,6 +644,9 @@ type FunctionPayload = {
   ok?: boolean
   already_accepted?: boolean
   attempts_remaining?: number
+  message?: string
+  existing_account?: boolean
+  account_status?: string
 }
 
 /**
@@ -601,6 +654,14 @@ type FunctionPayload = {
  * carries a stable error code; provider/database messages are never shown.
  */
 async function functionErrorCode(error: unknown): Promise<string> {
+  const name = (error as { name?: unknown } | null)?.name
+  const message = (error as { message?: unknown } | null)?.message
+  // supabase-js throws FunctionsFetchError when fetch itself fails (missing
+  // deployment, DNS/CORS, offline). That is not an HTTP application error.
+  if (name === 'FunctionsFetchError'
+    || (typeof message === 'string' && /failed to send a request to the edge function/i.test(message))) {
+    return 'edge_unreachable'
+  }
   const context = (error as { context?: { json?: () => Promise<unknown> } } | null)?.context
   if (!context?.json) return ''
   try {
@@ -616,6 +677,8 @@ async function functionErrorCode(error: unknown): Promise<string> {
 
 function otpErrorMessage(code: string, t: T): string {
   switch (code) {
+    case 'edge_unreachable':
+      return t('edgeUnreachable')
     case 'too_many_attempts':
     case 'rate_limited':
       return t('otpTooMany')
@@ -640,6 +703,8 @@ function otpErrorMessage(code: string, t: T): string {
 
 function inviteErrorMessage(code: string, t: T): string {
   switch (code) {
+    case 'edge_unreachable':
+      return t('edgeUnreachable')
     case 'already_registered':
       return t('alreadyRegistered')
     case 'invalid_phone':
@@ -652,10 +717,15 @@ function inviteErrorMessage(code: string, t: T): string {
       return t('tooManyRequests')
     case 'institution_inactive':
       return t('inactive')
+    case 'institution_required':
+    case 'institution_not_found':
+      return t('institutionRequired')
+    case 'profile_update_failed':
+      return t('profileUpdateFailed')
     case 'institution_forbidden':
     case 'role_not_allowed':
     case 'insufficient_role':
-    case 'Coaches may invite coaches only':
+    case 'self_invitation_forbidden':
       return t('noPermission')
     case 'different_institution':
       return t('otpDifferentInstitution')
@@ -664,6 +734,61 @@ function inviteErrorMessage(code: string, t: T): string {
     default:
       return t('errorGeneric')
   }
+}
+
+function inviteSuccessMessage(payload: FunctionPayload | null, useOtp: boolean, t: T): string {
+  if (payload?.message === 'existing_account_pending') return t('existingAccountPending')
+  return useOtp ? t('otpSent') : t('inviteSent')
+}
+
+function reviewErrorMessage(code: string, t: T): string {
+  switch (code) {
+    case 'authentication_required':
+    case 'active_profile_required':
+    case 'insufficient_permission':
+    case 'institution_forbidden':
+    case 'self_review_forbidden':
+    case 'owner_protected':
+    case 'owner_role_forbidden':
+    case 'target_role_forbidden':
+    case 'role_change_forbidden':
+    case 'profile_field_forbidden':
+      return t('noPermission')
+    case 'institution_required':
+    case 'institution_not_found':
+      return t('institutionRequired')
+    case 'profile_not_found':
+      return t('loadingError')
+    case 'invalid_transition':
+    case 'invalid_action':
+      return t('reviewFailed')
+    default:
+      return t('errorGeneric')
+  }
+}
+
+async function reviewAccount(
+  profileId: string,
+  action: 'approve' | 'reject' | 'suspend' | 'reactivate' | 'update',
+  options: {
+    role?: AccountRole
+    institutionId?: string | null
+    fullName?: string | null
+    reason?: string | null
+  } = {},
+): Promise<{ ok: boolean; error?: string; account_status?: string } | null> {
+  const { data, error } = await supabase.rpc('review_account', {
+    p_profile_id: profileId,
+    p_action: action,
+    p_role: options.role ?? null,
+    p_institution_id: options.institutionId ?? null,
+    p_full_name: options.fullName ?? null,
+    p_reason: options.reason ?? null,
+  })
+  if (error) return { ok: false, error: error.message }
+  const result = data as { ok?: boolean; error?: string; account_status?: string } | null
+  if (!result) return { ok: false, error: 'empty_response' }
+  return { ok: result.ok === true, error: result.error, account_status: result.account_status }
 }
 
 /** The invitee — never the inviter — redeems the code from their own session. */
@@ -709,7 +834,59 @@ function OtpCodeForm({ t, onAccepted }: { t: T; onAccepted: () => void }) {
       <button className="primary full" disabled={busy || code.length !== 6}>
         {busy ? t('verifyingOtp') : t('verifyOtp')}
       </button>
+      <small className="muted">{t('otpPendingReviewHint')}</small>
     </form>
+  )
+}
+
+/**
+ * Shows the OTP form only when the signed-in account actually has a live
+ * invitation. The old gate offered the form to every pending/missing account,
+ * so users without an invitation entered codes forever. The invitation is read
+ * through my_pending_invitation(), which can only return the caller's own row.
+ */
+function InvitationOtpPanel({ t, onAccepted }: { t: T; onAccepted: () => void }) {
+  const [invitation, setInvitation] = useState<PendingInvitation | null>(null)
+  const [checking, setChecking] = useState(true)
+  const [checkError, setCheckError] = useState('')
+  const [accepted, setAccepted] = useState(false)
+
+  useEffect(() => {
+    if (!isConfigured) { setChecking(false); return }
+    let alive = true
+    setChecking(true)
+    setCheckError('')
+    supabase.rpc('my_pending_invitation').then(({ data, error }) => {
+      if (!alive) return
+      if (error) setCheckError(error.message)
+      else setInvitation((data as PendingInvitation | null) ?? null)
+      setChecking(false)
+    })
+    return () => { alive = false }
+  }, [])
+
+  if (accepted) return <p className="muted">{t('awaitingApproval')}</p>
+  if (checking) return <p className="muted">{t('loading')}</p>
+  if (checkError) return <p className="muted">{t('edgeUnreachable')}</p>
+  if (!invitation) return <p className="muted">{t('noLiveInvitation')}</p>
+
+  return (
+    <>
+      <div className="notice-box">
+        <b>{t(invitation.role)}</b>
+        {invitation.institution_name ? ` · ${invitation.institution_name}` : ''}
+        {invitation.expires_at && (
+          <div><small>{t('otpExpiresIn')} {formatDateTime(invitation.expires_at)}</small></div>
+        )}
+      </div>
+      <OtpCodeForm
+        t={t}
+        onAccepted={() => {
+          setAccepted(true)
+          onAccepted()
+        }}
+      />
+    </>
   )
 }
 
@@ -733,7 +910,7 @@ function GateScreen({ state, t, onRetry, onSignOut, onAccepted }: {
         </div>
         <h2>{t(gateTitleKey(state))}</h2>
         <p className="muted">{t(gateBodyKey(state))}</p>
-        {canRedeem && <OtpCodeForm t={t} onAccepted={onAccepted} />}
+        {canRedeem && <InvitationOtpPanel key={state} t={t} onAccepted={onAccepted} />}
         {gateAllowsRetry(state) && (
           <button className="primary full" onClick={onRetry}>{t('retry')}</button>
         )}
@@ -748,7 +925,7 @@ function AcceptInvitation({ t, onAccepted }: { t: T; onAccepted: () => void }) {
     <>
       <Heading title={t('acceptInvitationTitle')} subtitle={t('acceptInvitationHint')} />
       <section className="panel">
-        <OtpCodeForm t={t} onAccepted={onAccepted} />
+        <InvitationOtpPanel t={t} onAccepted={onAccepted} />
       </section>
     </>
   )
@@ -1824,18 +2001,12 @@ function Messages({ profile, t }: { profile: Profile; t: T }) {
   const [loading, setLoading] = useState(true)
   const [createOpen, setCreateOpen] = useState(false)
   const [membersOpen, setMembersOpen] = useState(false)
-  const [inviteOpen, setInviteOpen] = useState(false)
   const [selected, setSelected] = useState<string[]>([])
   const [title, setTitle] = useState('')
   const [body, setBody] = useState('')
   const [file, setFile] = useState<File | null>(null)
   const [busy, setBusy] = useState(false)
   const [recording, setRecording] = useState(false)
-  const [inviteName, setInviteName] = useState('')
-  const [inviteEmail, setInviteEmail] = useState('')
-  const [inviteBusy, setInviteBusy] = useState(false)
-  const [deliveryMethodState, setDeliveryMethodState] = useState<'email' | 'whatsapp' | 'sms'>('email')
-  const [phoneNumber, setPhoneNumber] = useState('')
   const [memberPick, setMemberPick] = useState('')
   const [hasMore, setHasMore] = useState(false)
   const [olderBusy, setOlderBusy] = useState(false)
@@ -2069,39 +2240,6 @@ function Messages({ profile, t }: { profile: Profile; t: T }) {
     setRecording(false)
   }
 
-  async function inviteCoach(e: FormEvent) {
-    e.preventDefault()
-    if (!isConfigured) { notify(t('configMissing')); return }
-    setInviteBusy(true)
-
-    // Email keeps the old invite link + administrator approval flow.
-    // WhatsApp/SMS send a code that the invitee redeems after signing in.
-    const useOtp = deliveryMethodState !== 'email'
-
-    const { data, error } = await supabase.functions.invoke('invite-user', {
-      body: {
-        email: inviteEmail.trim(),
-        full_name: inviteName.trim(),
-        role: 'coach',
-        institution_id: profile.institution_id,
-        delivery_method: deliveryMethodState,
-        phone: deliveryMethodState === 'whatsapp' || deliveryMethodState === 'sms' ? phoneNumber : undefined,
-        use_otp: useOtp,
-      },
-    })
-    setInviteBusy(false)
-    const payload = data as FunctionPayload | null
-    const errorCode = payload?.error || await functionErrorCode(error)
-    if (error || errorCode) { notify(inviteErrorMessage(errorCode, t)); return }
-
-    notify(useOtp ? t('otpSent') : t('inviteSent'))
-    setInviteName('')
-    setInviteEmail('')
-    setPhoneNumber('')
-    setInviteOpen(false)
-    if (!useOtp) await loadPeople()
-  }
-
   async function addMember() {
     if (!current || !memberPick) return
     if (!canManageMembers) { notify(t('noPermission')); return }
@@ -2139,9 +2277,6 @@ function Messages({ profile, t }: { profile: Profile; t: T }) {
         title={t('messages')}
         action={(
           <div className="heading-actions">
-            <button className="secondary action-btn" onClick={() => setInviteOpen(true)}>
-              <UserPlus size={17} /> {t('inviteCoach')}
-            </button>
             <button className="primary action-btn" onClick={() => setCreateOpen(true)}>
               <MessageCircle size={17} /> {t('newConversation')}
             </button>
@@ -2223,41 +2358,6 @@ function Messages({ profile, t }: { profile: Profile; t: T }) {
         </div>
       </section>
 
-      {inviteOpen && (
-        <Modal title={t('inviteCoachTitle')} close={() => setInviteOpen(false)} closeLabel={t('close')}>
-          <form onSubmit={inviteCoach}>
-            <p className="muted">{t('coachInviteHint')}</p>
-            <label>{t('coachName')}<input required value={inviteName} onChange={(e) => setInviteName(e.target.value)} /></label>
-            <label>{t('email')}<input required type="email" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} /></label>
-            <label>{t('deliveryMethod')}
-              <select
-                value={deliveryMethodState}
-                onChange={(e) => setDeliveryMethodState(e.target.value as 'email' | 'whatsapp' | 'sms')}
-              >
-                <option value="email">{t('email')}</option>
-                <option value="whatsapp">{t('whatsapp')}</option>
-                <option value="sms">{t('sms')}</option>
-              </select>
-            </label>
-            {deliveryMethodState !== 'email' && (
-              <label>{t('phone')}
-                <input
-                  required
-                  type="tel"
-                  inputMode="tel"
-                  value={phoneNumber}
-                  onChange={(e) => setPhoneNumber(e.target.value)}
-                />
-              </label>
-            )}
-            <div className="modal-actions">
-              <button type="button" className="secondary" onClick={() => setInviteOpen(false)}>{t('cancel')}</button>
-              <button className="primary" disabled={inviteBusy}>{inviteBusy ? t('sendingInvite') : t('sendInvite')}</button>
-            </div>
-          </form>
-        </Modal>
-      )}
-
       {createOpen && (
         <Modal title={t('createConversationTitle')} close={() => setCreateOpen(false)} closeLabel={t('close')}>
           <form onSubmit={createConversation}>
@@ -2320,26 +2420,170 @@ function Messages({ profile, t }: { profile: Profile; t: T }) {
     </>
   )
 }
+function invitationStatusLabel(status: string, t: T): string {
+  if (status === 'accepted') return t('invitationAccepted')
+  if (status === 'expired') return t('invitationExpired')
+  if (status === 'revoked') return t('invitationRevoked')
+  return t('pending')
+}
+
+function InvitationList({ items, t, institutionNames }: {
+  items: InvitationRow[]
+  t: T
+  institutionNames?: Record<string, string>
+}) {
+  return (
+    <section className="panel">
+      <h3>{t('invitations')}</h3>
+      {items.length === 0 ? <Empty t={t} /> : items.map((item) => (
+        <div className="student-row" key={item.id}>
+          <div className="avatar">{(item.invited_name || item.invited_email || '?').slice(0, 1)}</div>
+          <div className="grow">
+            <b>{item.invited_name || item.invited_email || '—'}</b>
+            <small>
+              {item.invited_email || '—'} · {t(item.role)}
+              {institutionNames?.[item.institution_id] ? ` · ${institutionNames[item.institution_id]}` : ''}
+            </small>
+          </div>
+          <span className={`pill ${item.status === 'accepted' ? 'success' : item.status === 'pending' ? 'warning' : 'danger'}`}>
+            {invitationStatusLabel(item.status, t)}
+          </span>
+          <small className="muted">{t('expiresAt')} {formatDateTime(item.expires_at)}</small>
+        </div>
+      ))}
+    </section>
+  )
+}
+
+/**
+ * Owner-only account row. The owner may correct role/institution for every
+ * non-owner account and approve/reject/suspend/reactivate it. The server-side
+ * review_account() RPC repeats every check; these controls are only a
+ * convenience and cannot grant more than the RPC allows.
+ */
+function OwnerAccountRow({ person, institutions, t, onChanged }: {
+  person: AccountRow
+  institutions: { id: string; name: string; is_active: boolean }[]
+  t: T
+  onChanged: () => void
+}) {
+  const initialRole: AccountRole = isAccountRole(person.role) ? person.role : 'coach'
+  const [role, setRole] = useState<AccountRole>(initialRole)
+  const [institutionId, setInstitutionId] = useState(person.institution_id ?? '')
+  const [busy, setBusy] = useState(false)
+  const isOwnerAccount = person.role === 'owner'
+  const status = person.account_status || 'pending'
+
+  useEffect(() => {
+    setRole(isAccountRole(person.role) ? person.role : 'coach')
+    setInstitutionId(person.institution_id ?? '')
+  }, [person.role, person.institution_id])
+
+  async function run(action: 'approve' | 'reject' | 'suspend' | 'reactivate' | 'update') {
+    if (busy || isOwnerAccount) return
+    if ((action === 'approve' || action === 'update') && !institutionId) {
+      notify(t('institutionRequired'))
+      return
+    }
+    if (action === 'reject' && !window.confirm(t('rejectConfirm'))) return
+    setBusy(true)
+    const result = await reviewAccount(person.id, action, {
+      role,
+      institutionId: institutionId || null,
+    })
+    setBusy(false)
+    if (!result?.ok) {
+      notify(reviewErrorMessage(result?.error || '', t))
+      return
+    }
+    notify(t('accountUpdated'))
+    onChanged()
+  }
+
+  return (
+    <div className="student-row">
+      <div className="avatar">{(person.full_name || person.email || '?').slice(0, 1)}</div>
+      <div className="grow">
+        <b>{person.full_name || person.email || '—'}</b>
+        <small>{person.email} · {t(person.role || 'coach')}</small>
+        {!isOwnerAccount && (
+          <div className="heading-actions" style={{ marginTop: 8 }}>
+            <label>{t('role')}
+              <select value={role} onChange={(e) => setRole(e.target.value as AccountRole)}>
+                {ASSIGNABLE_ROLES.map((item) => <option key={item} value={item}>{t(item)}</option>)}
+              </select>
+            </label>
+            <label>{t('institution')}
+              <select value={institutionId} onChange={(e) => setInstitutionId(e.target.value)}>
+                <option value="">—</option>
+                {institutions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+              </select>
+            </label>
+            <button className="secondary" disabled={busy} onClick={() => { void run('update') }}>
+              {t('saveAccount')}
+            </button>
+          </div>
+        )}
+      </div>
+      <span className={`pill ${status === 'active' ? 'success' : status === 'rejected' ? 'danger' : 'warning'}`}>
+        {t(status)}
+      </span>
+      {isOwnerAccount ? (
+        <small className="muted">{t('ownerAccountReadOnly')}</small>
+      ) : (
+        <>
+          {(status === 'pending' || status === 'rejected') && (
+            <button className="secondary" disabled={busy} onClick={() => { void run('approve') }}>{t('approve')}</button>
+          )}
+          {status === 'pending' && (
+            <button className="danger" disabled={busy} onClick={() => { void run('reject') }}>{t('reject')}</button>
+          )}
+          {status === 'active' && (
+            <button className="danger" disabled={busy} onClick={() => { void run('suspend') }}>{t('suspend')}</button>
+          )}
+          {status === 'suspended' && (
+            <button className="secondary" disabled={busy} onClick={() => { void run('reactivate') }}>{t('reactivate')}</button>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
 function OwnerConsole({ profile, t }: { profile: Profile; t: T }) {
   const [institutions, setInstitutions] = useState<{ id: string; name: string; is_active: boolean }[]>([])
-  const [pending, setPending] = useState<{ id: string; full_name: string; email: string }[]>([])
+  const [accounts, setAccounts] = useState<AccountRow[]>([])
+  const [invitations, setInvitations] = useState<InvitationRow[]>([])
   const [loading, setLoading] = useState(true)
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [fullName, setFullName] = useState('')
   const [institution, setInstitution] = useState('')
+  const [role, setRole] = useState<AccountRole>('manager')
+  const [deliveryMethod, setDeliveryMethod] = useState<'email' | 'whatsapp' | 'sms'>('email')
+  const [phone, setPhone] = useState('')
   const [busy, setBusy] = useState(false)
+  const [syncBusy, setSyncBusy] = useState(false)
+
+  const institutionNames = Object.fromEntries(institutions.map((item) => [item.id, item.name])) as Record<string, string>
+  const pending = accounts.filter((person) => person.account_status === 'pending')
 
   async function load() {
     setLoading(true)
     if (!isConfigured) { setLoading(false); return }
-    const [institutionRes, pendingRes] = await Promise.all([
+    const [institutionRes, accountRes, invitationRes] = await Promise.all([
       supabase.from('institutions').select('id,name,is_active').order('created_at', { ascending: false }),
-      supabase.from('profiles').select('id,full_name,email').eq('role', 'manager').eq('account_status', 'pending').order('created_at', { ascending: false }),
+      supabase.from('profiles').select('*').order('created_at', { ascending: false }).limit(500),
+      supabase.from('invitations')
+        .select('id,invited_email,invited_name,role,institution_id,status,delivery_method,expires_at,created_at')
+        .order('created_at', { ascending: false })
+        .limit(100),
     ])
-    if (institutionRes.error || pendingRes.error) notify((institutionRes.error || pendingRes.error)?.message || t('errorGeneric'))
+    const firstError = institutionRes.error || accountRes.error || invitationRes.error
+    if (firstError) notify(firstError.message)
     setInstitutions((institutionRes.data ?? []) as { id: string; name: string; is_active: boolean }[])
-    setPending((pendingRes.data ?? []) as { id: string; full_name: string; email: string }[])
+    setAccounts((accountRes.data ?? []) as AccountRow[])
+    setInvitations((invitationRes.data ?? []) as InvitationRow[])
     setLoading(false)
   }
 
@@ -2357,38 +2601,49 @@ function OwnerConsole({ profile, t }: { profile: Profile; t: T }) {
     await load()
   }
 
-  async function appointManager(e: FormEvent) {
+  async function inviteMember(e: FormEvent) {
     e.preventDefault()
     if (!isConfigured) { notify(t('configMissing')); return }
+    if (!institution) { notify(t('institutionRequired')); return }
+    if (!canInvite('owner', role)) { notify(t('noPermission')); return }
+    const useOtp = deliveryMethod !== 'email'
     setBusy(true)
     const { data, error } = await supabase.functions.invoke('invite-user', {
-      body: { email: email.trim(), full_name: fullName.trim(), role: 'manager', institution_id: institution },
+      body: {
+        email: email.trim(),
+        full_name: fullName.trim(),
+        role,
+        institution_id: institution,
+        delivery_method: deliveryMethod,
+        phone: useOtp ? phone : undefined,
+        use_otp: useOtp,
+      },
     })
     setBusy(false)
     const payload = data as FunctionPayload | null
     const errorCode = payload?.error || await functionErrorCode(error)
     if (error || errorCode) { notify(inviteErrorMessage(errorCode, t)); return }
-    notify(t('inviteSent'))
+    notify(useOtp ? t('otpSent') : t('inviteSent'))
     setEmail('')
     setFullName('')
+    setPhone('')
     await load()
   }
 
-  async function approveManager(id: string) {
-    const { error } = await supabase.from('profiles').update({
-      account_status: 'active',
-      approved_by: profile.id,
-      approved_at: new Date().toISOString(),
-    }).eq('id', id)
+  async function syncMissingProfiles() {
+    if (!isConfigured) { notify(t('configMissing')); return }
+    setSyncBusy(true)
+    const { data, error } = await supabase.rpc('sync_missing_profiles')
+    setSyncBusy(false)
     if (error) { notify(error.message); return }
-    notify(t('savedOk'))
-    await load()
-  }
-
-  async function rejectManager(id: string) {
-    const { error } = await supabase.from('profiles').update({ account_status: 'rejected' }).eq('id', id)
-    if (error) { notify(error.message); return }
-    notify(t('savedOk'))
+    const result = data as { ok?: boolean; error?: string; inserted?: number; updated?: number } | null
+    if (!result?.ok) {
+      notify(reviewErrorMessage(result?.error || '', t))
+      return
+    }
+    notify(t('profilesSynced')
+      .replace('{inserted}', String(result.inserted ?? 0))
+      .replace('{updated}', String(result.updated ?? 0)))
     await load()
   }
 
@@ -2414,30 +2669,69 @@ function OwnerConsole({ profile, t }: { profile: Profile; t: T }) {
         </form>
       </section>
       <section className="panel">
-        <h3>{t('appointManager')}</h3>
-        <form onSubmit={appointManager}>
+        <h3>{t('invite')}</h3>
+        <p className="muted">{t('reviewAccountsHint')}</p>
+        <form onSubmit={inviteMember}>
           <label>{t('institution')}
             <select required value={institution} onChange={(e) => setInstitution(e.target.value)}>
               <option value="">—</option>
               {institutions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
             </select>
           </label>
-          <label>{t('managerName')}<input required value={fullName} onChange={(e) => setFullName(e.target.value)} /></label>
-          <label>{t('managerEmail')}<input required type="email" value={email} onChange={(e) => setEmail(e.target.value)} /></label>
-          <button className="primary" disabled={busy}>{t('sendInvite')}</button>
+          <label>{t('name')}<input required value={fullName} onChange={(e) => setFullName(e.target.value)} /></label>
+          <label>{t('email')}<input required type="email" value={email} onChange={(e) => setEmail(e.target.value)} /></label>
+          <label>{t('role')}
+            <select value={role} onChange={(e) => setRole(e.target.value as AccountRole)}>
+              {INVITE_MATRIX.owner.map((item) => <option key={item} value={item}>{t(item)}</option>)}
+            </select>
+          </label>
+          <label>{t('deliveryMethod')}
+            <select value={deliveryMethod} onChange={(e) => setDeliveryMethod(e.target.value as 'email' | 'whatsapp' | 'sms')}>
+              <option value="email">{t('email')}</option>
+              <option value="whatsapp">{t('whatsapp')}</option>
+              <option value="sms">{t('sms')}</option>
+            </select>
+          </label>
+          {deliveryMethod !== 'email' && (
+            <label>{t('phone')}
+              <input required type="tel" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} />
+            </label>
+          )}
+          <button className="primary" disabled={busy}>{busy ? t('sendingInvite') : t('sendInvite')}</button>
         </form>
+      </section>
+      <section className="panel">
+        <h3>{t('syncProfiles')}</h3>
+        <p className="muted">{t('syncProfilesHint')}</p>
+        <button className="secondary" disabled={syncBusy} onClick={() => { void syncMissingProfiles() }}>
+          {syncBusy ? t('loading') : t('syncProfiles')}
+        </button>
       </section>
       <section className="panel">
         <h3>{t('pendingAccounts')}</h3>
         {loading ? <Empty t={t} /> : pending.length === 0 ? <Empty t={t} /> : pending.map((person) => (
-          <div className="student-row" key={person.id}>
-            <div className="avatar">{(person.full_name || person.email || '?').slice(0, 1)}</div>
-            <div className="grow"><b>{person.full_name || person.email}</b><small>{person.email}</small></div>
-            <button className="secondary" onClick={() => { void approveManager(person.id) }}>{t('approve')}</button>
-            <button className="danger" onClick={() => { void rejectManager(person.id) }}>{t('reject')}</button>
-          </div>
+          <OwnerAccountRow
+            key={person.id}
+            person={person}
+            institutions={institutions}
+            t={t}
+            onChanged={() => { void load() }}
+          />
         ))}
       </section>
+      <section className="panel">
+        <h3>{t('allAccounts')}</h3>
+        {loading ? <Empty t={t} /> : accounts.length === 0 ? <Empty t={t} /> : accounts.map((person) => (
+          <OwnerAccountRow
+            key={person.id}
+            person={person}
+            institutions={institutions}
+            t={t}
+            onChanged={() => { void load() }}
+          />
+        ))}
+      </section>
+      <InvitationList items={invitations} t={t} institutionNames={institutionNames} />
       <section className="panel">
         <h3>{t('institutions')}</h3>
         {institutions.length === 0 ? <Empty t={t} /> : institutions.map((item) => (
@@ -2468,106 +2762,172 @@ function OwnerConsole({ profile, t }: { profile: Profile; t: T }) {
 }
 
 function Team({ profile, t }: { profile: Profile; t: T }) {
-  const [items, setItems] = useState<(Person & { created_at?: string })[]>([])
+  const [items, setItems] = useState<AccountRow[]>([])
+  const [invitations, setInvitations] = useState<InvitationRow[]>([])
   const [email, setEmail] = useState('')
   const [fullName, setFullName] = useState('')
-  const [role, setRole] = useState('coach')
+  const [role, setRole] = useState<AccountRole>('coach')
+  const [deliveryMethod, setDeliveryMethod] = useState<'email' | 'whatsapp' | 'sms'>('email')
+  const [phone, setPhone] = useState('')
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
-  const inviteRoles = profile.role === 'manager' ? ['coach', 'admin'] : ['coach']
-  // Mirrors the profiles_admin_update RLS check: the owner and other managers
-  // are not editable from an institution team screen. Showing the buttons for
-  // them only produced a "permission denied" error from Postgres.
-  const canManagePerson = (person: Person) =>
-    person.id !== profile.id && person.role !== 'owner' && person.role !== 'manager'
+  const [reviewingId, setReviewingId] = useState('')
+  const isDirector = profile.role === 'manager'
+  const inviteRoles = INVITE_MATRIX[profile.role]
+
+  // The server repeats every one of these checks inside review_account(); the
+  // UI mirrors them so the Director never sees a button that would fail. The
+  // Administration role reaches this page in read-only mode.
+  const canReviewPerson = (person: AccountRow) => canReviewAccount(
+    profile.role,
+    isAccountRole(person.role) ? person.role : 'coach',
+    person.institution_id === profile.institution_id,
+    person.id === profile.id,
+  )
 
   async function load() {
     setLoading(true)
     if (!isConfigured || !profile.institution_id) { setLoading(false); return }
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('institution_id', profile.institution_id)
-      .order('created_at', { ascending: false })
-    if (error) notify(error.message)
-    setItems((data ?? []) as (Person & { created_at?: string })[])
+    const [profileRes, invitationRes] = await Promise.all([
+      supabase
+        .from('profiles')
+        .select('*')
+        .eq('institution_id', profile.institution_id)
+        .order('created_at', { ascending: false }),
+      isDirector
+        ? supabase
+          .from('invitations')
+          .select('id,invited_email,invited_name,role,institution_id,status,delivery_method,expires_at,created_at')
+          .eq('institution_id', profile.institution_id)
+          .order('created_at', { ascending: false })
+          .limit(100)
+        : Promise.resolve({ data: [], error: null }),
+    ])
+    if (profileRes.error) notify(profileRes.error.message)
+    if (invitationRes.error) notify(invitationRes.error.message)
+    setItems((profileRes.data ?? []) as AccountRow[])
+    setInvitations((invitationRes.data ?? []) as InvitationRow[])
     setLoading(false)
   }
 
-  useEffect(() => { void load() }, [profile.institution_id])
+  useEffect(() => { void load() }, [profile.institution_id, profile.role])
 
   async function invite(e: FormEvent) {
     e.preventDefault()
     if (!isConfigured) { notify(t('configMissing')); return }
+    if (!isDirector || !profile.institution_id) { notify(t('noPermission')); return }
+    if (!canInvite(profile.role, role)) { notify(t('noPermission')); return }
+    const useOtp = deliveryMethod !== 'email'
     setBusy(true)
     const { data, error } = await supabase.functions.invoke('invite-user', {
-      body: { email: email.trim(), full_name: fullName.trim(), role, institution_id: profile.institution_id },
+      body: {
+        email: email.trim(),
+        full_name: fullName.trim(),
+        role,
+        institution_id: profile.institution_id,
+        delivery_method: deliveryMethod,
+        phone: useOtp ? phone.trim() : undefined,
+        use_otp: useOtp,
+      },
     })
     setBusy(false)
     const payload = data as FunctionPayload | null
     const errorCode = payload?.error || await functionErrorCode(error)
     if (error || errorCode) { notify(inviteErrorMessage(errorCode, t)); return }
-    notify(t('inviteSent'))
+    notify(useOtp ? t('otpSent') : t('inviteSent'))
     setEmail('')
     setFullName('')
+    setPhone('')
     await load()
   }
 
-  async function setStatus(person: Person, next: string) {
-    if (person.id === profile.id) { notify(t('noPermission')); return }
-    if (!canManagePerson(person)) { notify(t('noPermission')); return }
-    const payload: Record<string, string | null> = { account_status: next }
-    if (next === 'active') {
-      payload.approved_by = profile.id
-      payload.approved_at = new Date().toISOString()
-    }
-    const { error } = await supabase.from('profiles').update(payload).eq('id', person.id)
-    if (error) { notify(error.message); return }
-    notify(t('savedOk'))
+  async function review(person: AccountRow, action: 'approve' | 'reject' | 'suspend' | 'reactivate') {
+    if (!canReviewPerson(person)) { notify(t('noPermission')); return }
+    if (action === 'reject' && !window.confirm(t('rejectConfirm'))) return
+    setReviewingId(person.id)
+    const result = await reviewAccount(person.id, action)
+    setReviewingId('')
+    if (!result?.ok) { notify(reviewErrorMessage(result?.error || '', t)); return }
+    notify(t('accountUpdated'))
     await load()
   }
 
   return (
     <>
-      <Heading title={t('team')} />
-      <section className="panel">
-        <h3>{t('invite')}</h3>
-        <p className="muted">{t('inviteHint')}</p>
-        <form onSubmit={invite}>
-          <label>{t('name')}<input required value={fullName} onChange={(e) => setFullName(e.target.value)} /></label>
-          <label>{t('email')}<input required type="email" value={email} onChange={(e) => setEmail(e.target.value)} /></label>
-          <label>{t('role')}
-            <select value={role} onChange={(e) => setRole(e.target.value)}>
-              {inviteRoles.map((item) => <option key={item} value={item}>{t(item)}</option>)}
-            </select>
-          </label>
-          <button className="primary" disabled={busy}>{t('sendInvite')}</button>
-        </form>
-      </section>
+      <Heading
+        title={t('team')}
+        subtitle={isDirector ? t('institutionConsole') : t('readOnlyAccounts')}
+      />
+      {isDirector ? (
+        <section className="panel">
+          <h3>{t('invite')}</h3>
+          <p className="muted">{t('inviteHint')}</p>
+          <form onSubmit={invite}>
+            <label>{t('name')}<input required value={fullName} onChange={(e) => setFullName(e.target.value)} /></label>
+            <label>{t('email')}<input required type="email" value={email} onChange={(e) => setEmail(e.target.value)} /></label>
+            <label>{t('role')}
+              <select value={role} onChange={(e) => setRole(e.target.value as AccountRole)}>
+                {inviteRoles.map((item) => <option key={item} value={item}>{t(item)}</option>)}
+              </select>
+            </label>
+            <label>{t('deliveryMethod')}
+              <select value={deliveryMethod} onChange={(e) => setDeliveryMethod(e.target.value as 'email' | 'whatsapp' | 'sms')}>
+                <option value="email">{t('email')}</option>
+                <option value="whatsapp">{t('whatsapp')}</option>
+                <option value="sms">{t('sms')}</option>
+              </select>
+            </label>
+            {deliveryMethod !== 'email' && (
+              <label>{t('phone')}
+                <input required type="tel" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} />
+              </label>
+            )}
+            <button className="primary" disabled={busy}>{busy ? t('sendingInvite') : t('sendInvite')}</button>
+          </form>
+        </section>
+      ) : (
+        <section className="panel">
+          <h3>{t('manageAccounts')}</h3>
+          <p className="muted">{t('readOnlyAccounts')}</p>
+        </section>
+      )}
       <section className="panel">
         <h3>{t('manageAccounts')}</h3>
-        {loading ? <Empty t={t} /> : items.length === 0 ? <Empty t={t} /> : items.map((person) => (
-          <div className="student-row" key={person.id}>
-            <div className="avatar">{(person.full_name || person.email || '?').slice(0, 1)}</div>
-            <div className="grow"><b>{person.full_name || person.email}</b><small>{person.email} · {t(person.role || 'coach')}</small></div>
-            <span className={`pill ${person.account_status === 'active' ? 'success' : 'warning'}`}>
-              {t(person.account_status || 'pending')}
-            </span>
-            {person.account_status === 'pending' && canManagePerson(person) && (
-              <>
-                <button className="secondary" onClick={() => { void setStatus(person, 'active') }}>{t('approve')}</button>
-                <button className="danger" onClick={() => { void setStatus(person, 'rejected') }}>{t('reject')}</button>
-              </>
-            )}
-            {person.account_status === 'active' && canManagePerson(person) && (
-              <button className="danger" onClick={() => { void setStatus(person, 'suspended') }}>{t('suspend')}</button>
-            )}
-            {person.account_status === 'suspended' && canManagePerson(person) && (
-              <button className="secondary" onClick={() => { void setStatus(person, 'active') }}>{t('reactivate')}</button>
-            )}
-          </div>
-        ))}
+        <p className="muted">{t('reviewAccountsHint')}</p>
+        {loading ? <Empty t={t} /> : items.length === 0 ? <Empty t={t} /> : items.map((person) => {
+          const status = person.account_status || 'pending'
+          const canReview = canReviewPerson(person)
+          const rowBusy = reviewingId === person.id
+          return (
+            <div className="student-row" key={person.id}>
+              <div className="avatar">{(person.full_name || person.email || '?').slice(0, 1)}</div>
+              <div className="grow">
+                <b>{person.full_name || person.email || '—'}</b>
+                <small>{person.email} · {t(isAccountRole(person.role) ? person.role : 'coach')}</small>
+              </div>
+              <span className={`pill ${status === 'active' ? 'success' : status === 'rejected' ? 'danger' : 'warning'}`}>
+                {t(status)}
+              </span>
+              {canReview && status === 'pending' && (
+                <>
+                  <button className="secondary" disabled={rowBusy} onClick={() => { void review(person, 'approve') }}>{t('approve')}</button>
+                  <button className="danger" disabled={rowBusy} onClick={() => { void review(person, 'reject') }}>{t('reject')}</button>
+                </>
+              )}
+              {canReview && status === 'rejected' && (
+                <button className="secondary" disabled={rowBusy} onClick={() => { void review(person, 'approve') }}>{t('approve')}</button>
+              )}
+              {canReview && status === 'active' && (
+                <button className="danger" disabled={rowBusy} onClick={() => { void review(person, 'suspend') }}>{t('suspend')}</button>
+              )}
+              {canReview && status === 'suspended' && (
+                <button className="secondary" disabled={rowBusy} onClick={() => { void review(person, 'reactivate') }}>{t('reactivate')}</button>
+              )}
+            </div>
+          )
+        })}
       </section>
+      {isDirector && <InvitationList items={invitations} t={t} />}
     </>
   )
 }

@@ -24,7 +24,14 @@ create table if not exists public.profiles (
  phone text, avatar_path text, created_by uuid references public.profiles(id),
  approved_by uuid references public.profiles(id), approved_at timestamptz,
  created_at timestamptz not null default now(), updated_at timestamptz not null default now(),
- check ((role='owner' and institution_id is null) or (role<>'owner' and institution_id is not null) or (account_status='pending' and institution_id is null))
+ -- A non-owner account needs an institution before it can be active. Pending and
+ -- rejected accounts may temporarily have no institution while the owner repairs
+ -- an Auth/profile link; this is the safe state used by the repair RPCs.
+ constraint profiles_role_institution_check check (
+  (role='owner' and institution_id is null)
+  or (role<>'owner' and institution_id is not null)
+  or (institution_id is null and account_status in ('pending','rejected'))
+ )
 );
 create index if not exists profiles_institution_role on public.profiles(institution_id,role,account_status);
 
@@ -260,26 +267,56 @@ create trigger on_auth_user_confirmed after update of email_confirmed_at on auth
  execute function public.confirm_platform_owner();
 
 -- Protect role, institution and activation fields from self-promotion.
+--
+-- Final rule set:
+--   * owner  : may review any non-owner account and may correct its role or
+--              institution; the owner account itself is immutable here;
+--   * manager: may approve/reject/suspend/reactivate admin and coach accounts
+--              inside the manager's own institution only; may never change a
+--              role or move an account to another institution;
+--   * admin  : may not manage other accounts at all;
+--   * coach  : may not manage other accounts at all;
+--   * nobody : may change their own role, institution or status.
+--
+-- `review_account()` and `ensure_my_profile()` mark their transaction with
+-- `app.account_repair=on` after performing the same checks server-side, so the
+-- two trusted repair paths do not trip this trigger.
 create or replace function public.guard_profile_privileges() returns trigger
 language plpgsql security definer set search_path=public,pg_temp
-as $$ declare actor_role public.app_role; begin
+as $$ declare actor_role public.app_role; actor_institution uuid; begin
  if auth.uid() is null then return new; end if;
- if new.role='owner' and old.role<>'owner' then raise exception 'The platform-owner role is provisioned by bootstrap only'; end if;
- if old.role='owner' and new.role<>'owner' then raise exception 'The platform-owner role cannot be reassigned'; end if;
+ if current_setting('app.account_repair', true) = 'on' then return new; end if;
  if old.id=auth.uid() then
   if new.role is distinct from old.role or new.institution_id is distinct from old.institution_id or new.account_status is distinct from old.account_status or new.email is distinct from old.email or new.created_by is distinct from old.created_by or new.approved_by is distinct from old.approved_by or new.approved_at is distinct from old.approved_at then
    raise exception 'You cannot change your own role, institution or account status';
   end if;
- elsif not public.is_platform_owner() then
-  actor_role:=public.current_app_role();
-  if actor_role not in ('manager','admin') or (old.institution_id is distinct from public.current_institution_id() and not (old.institution_id is null and old.account_status='pending')) then raise exception 'Insufficient permission'; end if;
-  if actor_role='admin' and old.role<>'coach' then raise exception 'Admins can manage coach accounts only'; end if;
-  if new.email is distinct from old.email or new.created_by is distinct from old.created_by then raise exception 'Protected profile fields'; end if;
-  if (new.approved_by is distinct from old.approved_by or new.approved_at is distinct from old.approved_at) and not (old.account_status='pending' and new.account_status='active' and new.approved_by=auth.uid()) then raise exception 'Approval fields can only be set during approval'; end if;
-  if new.institution_id is distinct from public.current_institution_id() then raise exception 'Cannot move account to another institution'; end if;
-  if new.role in ('owner','manager') or (new.role='admin' and actor_role<>'manager') then raise exception 'Cannot assign this role'; end if;
-  if old.account_status='pending' and new.account_status='active' and not (new.role='coach' or (new.role='admin' and actor_role='manager')) then raise exception 'Cannot approve this role'; end if;
-  if old.role in ('owner','manager') then raise exception 'Protected account'; end if;
+  return new;
+ end if;
+ if new.role='owner' and old.role<>'owner' then raise exception 'The platform-owner role is provisioned by bootstrap only'; end if;
+ if old.role='owner' then raise exception 'The platform-owner role cannot be reassigned or modified here'; end if;
+ actor_role:=public.current_app_role();
+ actor_institution:=public.current_institution_id();
+ if actor_role='owner' then return new; end if;
+ if actor_role<>'manager' then raise exception 'Insufficient permission'; end if;
+ if actor_institution is null or old.institution_id is distinct from actor_institution then raise exception 'Insufficient permission'; end if;
+ if old.role not in ('admin','coach') then raise exception 'Managers may review institution administrators and coaches only'; end if;
+ if new.role is distinct from old.role then raise exception 'Managers cannot change account roles'; end if;
+ if new.institution_id is distinct from old.institution_id then raise exception 'Managers cannot move accounts between institutions'; end if;
+ if new.email is distinct from old.email or new.created_by is distinct from old.created_by then raise exception 'Protected profile fields'; end if;
+ if new.account_status is distinct from old.account_status then
+  if new.account_status='active' and old.account_status in ('pending','rejected') then
+   if new.approved_by is distinct from auth.uid() or new.approved_at is null then raise exception 'Approval fields must record the approving manager'; end if;
+  elsif new.account_status='rejected' and old.account_status in ('pending','active','suspended') then
+   null;
+  elsif new.account_status='suspended' and old.account_status='active' then
+   null;
+  elsif new.account_status='active' and old.account_status='suspended' then
+   if new.approved_by is distinct from old.approved_by or new.approved_at is distinct from old.approved_at then raise exception 'Reactivation does not change approval fields'; end if;
+  else
+   raise exception 'Invalid account status transition';
+  end if;
+ elsif new.approved_by is distinct from old.approved_by or new.approved_at is distinct from old.approved_at then
+  raise exception 'Approval fields can only be set during approval';
  end if;
  return new;
 end $$;
@@ -530,7 +567,23 @@ create policy profiles_select on public.profiles for select to authenticated usi
 drop policy if exists profiles_update_self_safe on public.profiles;
 create policy profiles_update_self_safe on public.profiles for update to authenticated using(id=auth.uid()) with check(id=auth.uid());
 drop policy if exists profiles_admin_update on public.profiles;
-create policy profiles_admin_update on public.profiles for update to authenticated using(public.is_platform_owner() or ((institution_id=public.current_institution_id() or (institution_id is null and account_status='pending')) and public.current_app_role() in ('manager','admin'))) with check(public.is_platform_owner() or (institution_id=public.current_institution_id() and role not in ('owner','manager')));
+create policy profiles_admin_update on public.profiles for update to authenticated
+using (
+ public.is_platform_owner()
+ or (
+  public.current_app_role()='manager'
+  and institution_id=public.current_institution_id()
+  and role in ('admin','coach')
+ )
+)
+with check (
+ public.is_platform_owner()
+ or (
+  public.current_app_role()='manager'
+  and institution_id=public.current_institution_id()
+  and role in ('admin','coach')
+ )
+);
 -- Owner profiles are created only by the auth bootstrap function; even the
 -- platform owner cannot insert a second owner through the API.
 drop policy if exists profiles_owner_insert on public.profiles;
@@ -656,7 +709,10 @@ as $$ begin if new.recipient_id is distinct from old.recipient_id or new.institu
 drop trigger if exists notifications_guard on public.notifications;
 create trigger notifications_guard before update on public.notifications for each row execute function public.guard_notification_update();
 drop policy if exists audit_read_admin on public.audit_logs;
-create policy audit_read_admin on public.audit_logs for select to authenticated using((public.is_platform_owner() and table_name='institutions') or (institution_id=public.current_institution_id() and public.is_institution_admin()));
+create policy audit_read_admin on public.audit_logs for select to authenticated using(
+ public.is_platform_owner()
+ or (institution_id=public.current_institution_id() and public.current_app_role() in ('manager','admin'))
+);
 
 -- Private object storage. Use institution UUID as first folder and user UUID as second.
 insert into storage.buckets(id,name,public,file_size_limit,allowed_mime_types) values
