@@ -45,7 +45,11 @@ BEGIN
      OR to_regclass('public.profiles') IS NULL
      OR to_regclass('public.audit_logs') IS NULL THEN
     RAISE EXCEPTION
-      'Run supabase/THE_TRAINERS_SETUP.sql before INVITATIONS_OTP_INCREMENTAL.sql';
+      'Run supabase/THE_TRAINERS_SETUP.sql (it must finish with no error) before INVITATIONS_OTP_INCREMENTAL.sql. Missing: %',
+      concat_ws(', ',
+        CASE WHEN to_regclass('public.institutions') IS NULL THEN 'institutions' END,
+        CASE WHEN to_regclass('public.profiles') IS NULL THEN 'profiles' END,
+        CASE WHEN to_regclass('public.audit_logs') IS NULL THEN 'audit_logs' END);
   END IF;
 
   IF NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pgcrypto') THEN

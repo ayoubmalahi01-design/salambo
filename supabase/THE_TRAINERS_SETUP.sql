@@ -19,7 +19,7 @@ create table if not exists public.profiles (
  institution_id uuid references public.institutions(id) on delete restrict,
  full_name text not null default '', email text not null default '',
  role public.app_role not null default 'coach',
- account_status text not null default 'pending' check(account_status in ('pending','active','suspended')),
+ account_status text not null default 'pending' check(account_status in ('pending','active','rejected','suspended')),
  preferred_language text not null default 'ar' check(preferred_language in ('ar','fr','en')),
  phone text, avatar_path text, created_by uuid references public.profiles(id),
  approved_by uuid references public.profiles(id), approved_at timestamptz,
@@ -80,9 +80,10 @@ create index if not exists reports_coach_date on public.daily_reports(coach_id,r
 create table if not exists public.report_templates (
  id uuid primary key default gen_random_uuid(), institution_id uuid not null references public.institutions(id) on delete cascade,
  file_name text not null, file_path text not null, version int not null default 1,
- is_current boolean not null default false, created_at timestamptz not null default now(), updated_at timestamptz not null default now(),
- constraint current_template_per_institution unique (institution_id) where is_current = true
+ is_current boolean not null default false, created_at timestamptz not null default now(), updated_at timestamptz not null default now()
 );
+-- Only one current template per institution (a partial unique INDEX; a table constraint cannot have WHERE).
+create unique index if not exists current_template_per_institution on public.report_templates(institution_id) where is_current = true;
 -- Report export log for tracking downloads
 create table if not exists public.report_exports (
  id uuid primary key default gen_random_uuid(), institution_id uuid not null references public.institutions(id) on delete cascade,
@@ -91,6 +92,118 @@ create table if not exists public.report_exports (
  export_type text not null check(export_type in ('single','institution','all','template')),
  exported_at timestamptz not null default now(), file_name text, file_path text
 );
+-- =============================================================
+-- CORE TABLES (repair): these tables are used by the policies, triggers and
+-- the application below but were missing from the earlier file. All statements
+-- are idempotent (IF NOT EXISTS) and additive.
+-- =============================================================
+create table if not exists public.audit_logs (
+ id bigint generated always as identity primary key,
+ institution_id uuid,
+ actor_id uuid references public.profiles(id) on delete set null,
+ action text not null, table_name text not null, record_id text,
+ old_data jsonb, new_data jsonb,
+ created_at timestamptz not null default now()
+);
+create index if not exists audit_logs_institution_created_idx on public.audit_logs(institution_id, created_at desc);
+create index if not exists audit_logs_table_created_idx on public.audit_logs(table_name, created_at desc);
+
+create table if not exists public.attendance_records (
+ id uuid primary key default gen_random_uuid(),
+ institution_id uuid not null references public.institutions(id) on delete cascade,
+ student_id uuid not null references public.students(id) on delete cascade,
+ coach_id uuid not null references public.profiles(id) on delete cascade,
+ session_date date not null,
+ session_key text not null default 'unspecified',
+ status text not null check(status in ('present','absent','late','excused','permission','medical_exemption')),
+ reason text,
+ created_at timestamptz not null default now(), updated_at timestamptz not null default now()
+);
+
+create table if not exists public.absence_followups (
+ student_id uuid primary key references public.students(id) on delete cascade,
+ institution_id uuid not null references public.institutions(id) on delete cascade,
+ streak integer not null default 0,
+ status text not null default 'none' check(status in ('none','open','done')),
+ last_follow_up_at timestamptz,
+ created_at timestamptz not null default now(), updated_at timestamptz not null default now()
+);
+
+create table if not exists public.student_notes (
+ id uuid primary key default gen_random_uuid(),
+ institution_id uuid not null references public.institutions(id) on delete cascade,
+ student_id uuid not null references public.students(id) on delete cascade,
+ author_id uuid not null references public.profiles(id) on delete cascade,
+ body text not null,
+ note_type text not null default 'general',
+ follow_up_status text not null default 'none' check(follow_up_status in ('none','open','done')),
+ created_at timestamptz not null default now(), updated_at timestamptz not null default now()
+);
+create index if not exists student_notes_student_idx on public.student_notes(student_id, created_at desc);
+
+create table if not exists public.admin_notices (
+ id uuid primary key default gen_random_uuid(),
+ institution_id uuid not null references public.institutions(id) on delete cascade,
+ author_id uuid not null references public.profiles(id) on delete cascade,
+ title text not null, body text not null default '',
+ is_published boolean not null default true, published_at timestamptz,
+ created_at timestamptz not null default now(), updated_at timestamptz not null default now()
+);
+
+create table if not exists public.notifications (
+ id uuid primary key default gen_random_uuid(),
+ institution_id uuid references public.institutions(id) on delete cascade,
+ recipient_id uuid not null references public.profiles(id) on delete cascade,
+ title text not null, body text not null default '',
+ notification_type text not null default 'general',
+ read_at timestamptz,
+ created_at timestamptz not null default now()
+);
+create index if not exists notifications_recipient_idx on public.notifications(recipient_id, created_at desc);
+
+create table if not exists public.coach_notebooks (
+ id uuid primary key default gen_random_uuid(),
+ institution_id uuid not null references public.institutions(id) on delete cascade,
+ coach_id uuid not null references public.profiles(id) on delete cascade,
+ title text not null, body text not null default '',
+ entry_date date not null default current_date,
+ created_at timestamptz not null default now(), updated_at timestamptz not null default now()
+);
+
+create table if not exists public.conversations (
+ id uuid primary key default gen_random_uuid(),
+ institution_id uuid not null references public.institutions(id) on delete cascade,
+ title text,
+ conversation_type text not null default 'group' check(conversation_type in ('direct','group')),
+ created_by uuid not null references public.profiles(id) on delete cascade,
+ created_at timestamptz not null default now(), updated_at timestamptz not null default now()
+);
+create table if not exists public.conversation_members (
+ conversation_id uuid not null references public.conversations(id) on delete cascade,
+ profile_id uuid not null references public.profiles(id) on delete cascade,
+ last_read_at timestamptz,
+ created_at timestamptz not null default now(),
+ primary key (conversation_id, profile_id)
+);
+create table if not exists public.messages (
+ id uuid primary key default gen_random_uuid(),
+ institution_id uuid not null references public.institutions(id) on delete cascade,
+ conversation_id uuid not null references public.conversations(id) on delete cascade,
+ sender_id uuid not null references public.profiles(id) on delete cascade,
+ body text,
+ message_type text not null default 'text' check(message_type in ('text','image','audio','file')),
+ media_path text,
+ created_at timestamptz not null default now(),
+ constraint messages_content_check check(body is not null or media_path is not null)
+);
+create index if not exists messages_conversation_idx on public.messages(conversation_id, created_at desc);
+
+do $$ declare t text; begin
+ foreach t in array array['audit_logs','attendance_records','absence_followups','student_notes','admin_notices','notifications','coach_notebooks','conversations','conversation_members','messages'] loop
+  execute format('alter table public.%I enable row level security', t);
+ end loop;
+end $$;
+
 -- Institution-level audit for template changes
 create or replace function public.write_audit_log() returns trigger
 language plpgsql security definer set search_path=public,pg_temp
@@ -260,7 +373,7 @@ create trigger profiles_privilege_guard before update on public.profiles for eac
 
 create or replace function public.set_updated_at() returns trigger language plpgsql set search_path=public,pg_temp
 as $$ begin new.updated_at=now(); return new; end $$;
-do $$ declare t text; begin foreach t in array array['institutions','profiles','students','student_notes','coach_notebooks','daily_reports','report_templates','report_exports'] loop
+do $$ declare t text; begin foreach t in array array['institutions','profiles','students','student_notes','coach_notebooks','daily_reports','report_templates'] loop
  execute format('drop trigger if exists %I on public.%I',t||'_set_updated_at',t);
  execute format('create trigger %I before update on public.%I for each row execute function public.set_updated_at()',t||'_set_updated_at',t);
  end loop; end $$;
@@ -718,5 +831,157 @@ as $$ declare v_name text; v_preview text; begin
 end $$;
 drop trigger if exists message_notify on public.messages;
 create trigger message_notify after insert on public.messages for each row execute function public.notify_new_message();
+
+-- =============================================================
+-- CORE POLICIES / RPCs / STORAGE / REALTIME (repair, idempotent)
+-- =============================================================
+-- If a table already existed from an earlier run, "create table if not exists" does not
+-- add new columns. These statements add any missing column (safe to repeat).
+alter table public.conversation_members add column if not exists last_read_at timestamptz;
+alter table public.conversation_members add column if not exists created_at timestamptz not null default now();
+alter table public.audit_logs add column if not exists institution_id uuid;
+alter table public.audit_logs add column if not exists actor_id uuid;
+alter table public.audit_logs add column if not exists record_id text;
+alter table public.audit_logs add column if not exists old_data jsonb;
+alter table public.audit_logs add column if not exists new_data jsonb;
+alter table public.audit_logs add column if not exists created_at timestamptz not null default now();
+alter table public.attendance_records add column if not exists reason text;
+alter table public.attendance_records add column if not exists created_at timestamptz not null default now();
+alter table public.attendance_records add column if not exists updated_at timestamptz not null default now();
+alter table public.absence_followups add column if not exists institution_id uuid;
+alter table public.absence_followups add column if not exists streak integer not null default 0;
+alter table public.absence_followups add column if not exists status text not null default 'none';
+alter table public.absence_followups add column if not exists last_follow_up_at timestamptz;
+alter table public.absence_followups add column if not exists created_at timestamptz not null default now();
+alter table public.absence_followups add column if not exists updated_at timestamptz not null default now();
+alter table public.student_notes add column if not exists note_type text not null default 'general';
+alter table public.student_notes add column if not exists follow_up_status text not null default 'none';
+alter table public.student_notes add column if not exists created_at timestamptz not null default now();
+alter table public.student_notes add column if not exists updated_at timestamptz not null default now();
+alter table public.admin_notices add column if not exists body text not null default '';
+alter table public.admin_notices add column if not exists is_published boolean not null default true;
+alter table public.admin_notices add column if not exists published_at timestamptz;
+alter table public.admin_notices add column if not exists created_at timestamptz not null default now();
+alter table public.admin_notices add column if not exists updated_at timestamptz not null default now();
+alter table public.notifications add column if not exists institution_id uuid;
+alter table public.notifications add column if not exists body text not null default '';
+alter table public.notifications add column if not exists notification_type text not null default 'general';
+alter table public.notifications add column if not exists read_at timestamptz;
+alter table public.notifications add column if not exists created_at timestamptz not null default now();
+alter table public.coach_notebooks add column if not exists body text not null default '';
+alter table public.coach_notebooks add column if not exists entry_date date not null default current_date;
+alter table public.coach_notebooks add column if not exists created_at timestamptz not null default now();
+alter table public.coach_notebooks add column if not exists updated_at timestamptz not null default now();
+alter table public.conversations add column if not exists title text;
+alter table public.conversations add column if not exists conversation_type text not null default 'group';
+alter table public.conversations add column if not exists created_at timestamptz not null default now();
+alter table public.conversations add column if not exists updated_at timestamptz not null default now();
+alter table public.messages add column if not exists body text;
+alter table public.messages add column if not exists message_type text not null default 'text';
+alter table public.messages add column if not exists media_path text;
+alter table public.messages add column if not exists created_at timestamptz not null default now();
+
+-- Attendance
+drop policy if exists attendance_read on public.attendance_records;
+create policy attendance_read on public.attendance_records for select to authenticated using(institution_id=public.current_institution_id() or public.is_platform_owner());
+drop policy if exists attendance_insert on public.attendance_records;
+create policy attendance_insert on public.attendance_records for insert to authenticated with check(institution_id=public.current_institution_id() and coach_id=auth.uid());
+drop policy if exists attendance_update on public.attendance_records;
+create policy attendance_update on public.attendance_records for update to authenticated using(institution_id=public.current_institution_id() and (coach_id=auth.uid() or public.is_institution_admin())) with check(institution_id=public.current_institution_id() and (coach_id=auth.uid() or public.is_institution_admin()));
+
+-- Absence follow-up: streak of consecutive absences, refreshed by a trigger.
+create or replace function public.refresh_absence_followup() returns trigger
+language plpgsql security definer set search_path=public,pg_temp
+as $$ declare v_streak integer; begin
+ with ordered as (
+  select a.status, row_number() over (order by a.session_date desc, a.created_at desc) rn
+  from public.attendance_records a where a.student_id=new.student_id
+ ), first_non as (
+  select coalesce(min(rn), (select count(*)+1 from ordered)) n from ordered where status<>'absent'
+ )
+ select n-1 into v_streak from first_non;
+ if v_streak >= 5 then
+  insert into public.absence_followups(student_id,institution_id,streak,status)
+  values(new.student_id,new.institution_id,v_streak,'open')
+  on conflict (student_id) do update
+   set streak=excluded.streak,
+       status=case when public.absence_followups.status='done' and excluded.streak>public.absence_followups.streak then 'open' else public.absence_followups.status end,
+       updated_at=now();
+ else
+  update public.absence_followups set streak=v_streak, status='none', updated_at=now() where student_id=new.student_id;
+ end if;
+ return new;
+end $$;
+drop trigger if exists attendance_followup_refresh on public.attendance_records;
+create trigger attendance_followup_refresh after insert or update of status on public.attendance_records for each row execute function public.refresh_absence_followup();
+
+drop policy if exists followups_admin_read on public.absence_followups;
+create policy followups_admin_read on public.absence_followups for select to authenticated using(institution_id=public.current_institution_id() and public.is_institution_admin());
+drop policy if exists followups_admin_update on public.absence_followups;
+create policy followups_admin_update on public.absence_followups for update to authenticated using(institution_id=public.current_institution_id() and public.is_institution_admin()) with check(institution_id=public.current_institution_id() and public.is_institution_admin());
+
+-- Notifications: each user sees and marks only their own.
+drop policy if exists notifications_own_read on public.notifications;
+create policy notifications_own_read on public.notifications for select to authenticated using(recipient_id=auth.uid());
+drop policy if exists notifications_own_update on public.notifications;
+create policy notifications_own_update on public.notifications for update to authenticated using(recipient_id=auth.uid()) with check(recipient_id=auth.uid());
+
+-- Private coach notebook.
+drop policy if exists notebooks_own on public.coach_notebooks;
+create policy notebooks_own on public.coach_notebooks for all to authenticated using(coach_id=auth.uid() and institution_id=public.current_institution_id()) with check(coach_id=auth.uid() and institution_id=public.current_institution_id());
+
+-- Chat.
+drop policy if exists conversation_members_insert on public.conversation_members;
+create policy conversation_members_insert on public.conversation_members for insert to authenticated with check(
+ exists(select 1 from public.conversations c where c.id=conversation_id and c.institution_id=public.current_institution_id())
+ and (public.is_conversation_member(conversation_id) or public.is_institution_admin())
+);
+drop policy if exists messages_read_member on public.messages;
+create policy messages_read_member on public.messages for select to authenticated using(institution_id=public.current_institution_id() and public.is_conversation_member(conversation_id));
+drop policy if exists messages_insert_member on public.messages;
+create policy messages_insert_member on public.messages for insert to authenticated with check(institution_id=public.current_institution_id() and sender_id=auth.uid() and public.is_conversation_member(conversation_id));
+
+drop function if exists public.mark_conversation_read(uuid);
+drop function if exists public.unread_counts();
+create or replace function public.mark_conversation_read(p_conversation_id uuid) returns void
+language sql security definer set search_path=public,pg_temp
+as $$ update public.conversation_members set last_read_at=now() where conversation_id=p_conversation_id and profile_id=auth.uid() $$;
+create or replace function public.unread_counts() returns table(conversation_id uuid, unread bigint)
+language sql stable security definer set search_path=public,pg_temp
+as $$ select m.conversation_id, count(*)::bigint from public.messages m
+ join public.conversation_members cm on cm.conversation_id=m.conversation_id and cm.profile_id=auth.uid()
+ where m.sender_id<>auth.uid() and m.created_at>coalesce(cm.last_read_at,'-infinity'::timestamptz)
+ group by m.conversation_id $$;
+revoke all on function public.mark_conversation_read(uuid) from public, anon;
+revoke all on function public.unread_counts() from public, anon;
+grant execute on function public.mark_conversation_read(uuid) to authenticated;
+grant execute on function public.unread_counts() to authenticated;
+
+-- Audit log is written by triggers/RPCs only; browsers can read per policy, never write.
+revoke insert, update, delete on public.audit_logs from anon, authenticated;
+revoke insert, update, delete on public.notifications from anon, authenticated;
+grant update(read_at) on public.notifications to authenticated;
+
+-- Storage buckets (private). Object paths must start with the institution id.
+insert into storage.buckets(id,name,public) values('trainer-avatars','trainer-avatars',false),('trainer-media','trainer-media',false),('trainer-medical','trainer-medical',false) on conflict (id) do nothing;
+drop policy if exists trainer_storage_member_rw on storage.objects;
+create policy trainer_storage_member_rw on storage.objects for all to authenticated
+ using(bucket_id in ('trainer-avatars','trainer-media') and (storage.foldername(name))[1]=public.current_institution_id()::text)
+ with check(bucket_id in ('trainer-avatars','trainer-media') and (storage.foldername(name))[1]=public.current_institution_id()::text);
+drop policy if exists trainer_storage_medical_admin on storage.objects;
+create policy trainer_storage_medical_admin on storage.objects for all to authenticated
+ using(bucket_id='trainer-medical' and public.is_institution_admin() and (storage.foldername(name))[1]=public.current_institution_id()::text)
+ with check(bucket_id='trainer-medical' and public.is_institution_admin() and (storage.foldername(name))[1]=public.current_institution_id()::text);
+
+-- Realtime for chat and notifications.
+do $$ declare t text; begin
+ if exists(select 1 from pg_publication where pubname='supabase_realtime') then
+  foreach t in array array['messages','notifications','conversation_members'] loop
+   if not exists(select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename=t) then
+    execute format('alter publication supabase_realtime add table public.%I', t);
+   end if;
+  end loop;
+ end if;
+end $$;
 
 commit;
