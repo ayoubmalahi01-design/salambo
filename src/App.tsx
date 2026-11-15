@@ -58,6 +58,7 @@ type Person = {
   created_at?: string
 }
 type AccountRow = Profile & {
+  avatar_path?: string | null
   created_at?: string
   approved_by?: string | null
   approved_at?: string | null
@@ -2471,6 +2472,8 @@ function OwnerAccountRow({ person, institutions, t, onChanged }: {
   const [role, setRole] = useState<AccountRole>(initialRole)
   const [institutionId, setInstitutionId] = useState(person.institution_id ?? '')
   const [busy, setBusy] = useState(false)
+  const [avatarPath, setAvatarPath] = useState(person.avatar_path || '')
+  const [avatarUrl, setAvatarUrl] = useState('')
   const isOwnerAccount = person.role === 'owner'
   const status = person.account_status || 'pending'
 
@@ -2479,6 +2482,15 @@ function OwnerAccountRow({ person, institutions, t, onChanged }: {
     setInstitutionId(person.institution_id ?? '')
     setAvatarPath(person.avatar_path || '')
   }, [person.role, person.institution_id, person.avatar_path])
+
+  useEffect(() => {
+    let alive = true
+    if (!isConfigured || !avatarPath) { setAvatarUrl(''); return }
+    void supabase.storage.from('trainer-avatars').createSignedUrl(avatarPath, 3600).then(({ data }) => {
+      if (alive) setAvatarUrl(data?.signedUrl || '')
+    })
+    return () => { alive = false }
+  }, [avatarPath])
 
   async function run(action: 'approve' | 'reject' | 'suspend' | 'reactivate' | 'update') {
     if (busy || isOwnerAccount) return
@@ -2512,7 +2524,6 @@ function OwnerAccountRow({ person, institutions, t, onChanged }: {
       .from('trainer-avatars')
       .upload(avatar_path, file, { upsert: false, contentType: file.type })
     if (uploadError) { notify(uploadError.message); setBusy(false); return }
-    const { data } = await supabase.storage.from('trainer-avatars').createSignedUrl(avatar_path, 3600)
     setAvatarPath(avatar_path)
     const { error: updateError } = await supabase.from('profiles').update({ avatar_path }).eq('id', person.id)
     if (updateError) { notify(updateError.message); setBusy(false); return }
@@ -2524,15 +2535,24 @@ function OwnerAccountRow({ person, institutions, t, onChanged }: {
   return (
     <div className="student-row">
       <div className="avatar">
-        {avatarPath ? (
-          <img src={avatarPath?.signedUrl || ''} alt={person.full_name || 'avatar'} className="avatar-img" />
+        {avatarUrl ? (
+          <img src={avatarUrl} alt={person.full_name || 'avatar'} className="avatar-img" />
         ) : (
-          {(person.full_name || person.email || '?').slice(0, 1)}
+          <span>{(person.full_name || person.email || '?').slice(0, 1)}</span>
         )}
-        {avatarPath && (
-          <button className="avatar-upload-btn" onClick={() => document.getElementById(`avatar-upload-${person.id}`)?.click()}>
-            {t('changeAvatar')}
-          </button>
+        {person.institution_id && (
+          <>
+            <input
+              id={`avatar-upload-${person.id}`}
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              style={{ display: 'none' }}
+              onChange={(e) => { void uploadAvatar(e) }}
+            />
+            <button type="button" className="avatar-upload-btn" disabled={busy} onClick={() => document.getElementById(`avatar-upload-${person.id}`)?.click()}>
+              {t('changeAvatar')}
+            </button>
+          </>
         )}
       </div>
       <div className="grow">
