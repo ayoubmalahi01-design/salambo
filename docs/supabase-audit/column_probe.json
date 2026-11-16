@@ -1,0 +1,1353 @@
+﻿[
+    {
+        "table":  "students",
+        "column":  "id",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "students",
+        "column":  "institution_id",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "students",
+        "column":  "full_name",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "students",
+        "column":  "student_code",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "students",
+        "column":  "date_of_birth",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "students",
+        "column":  "is_active",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "students",
+        "column":  "class_id",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "students",
+        "column":  "created_at",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "students",
+        "column":  "updated_at",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "invitations",
+        "column":  "id",
+        "status":  401,
+        "missing":  false,
+        "error":  "{\"code\":\"42501\",\"details\":null,\"hint\":\"Grant the required privileges to the current role with: GRANT SELECT ON public.in"
+    },
+    {
+        "table":  "invitations",
+        "column":  "invited_email",
+        "status":  401,
+        "missing":  false,
+        "error":  "{\"code\":\"42501\",\"details\":null,\"hint\":\"Grant the required privileges to the current role with: GRANT SELECT ON public.in"
+    },
+    {
+        "table":  "invitations",
+        "column":  "invited_name",
+        "status":  401,
+        "missing":  false,
+        "error":  "{\"code\":\"42501\",\"details\":null,\"hint\":\"Grant the required privileges to the current role with: GRANT SELECT ON public.in"
+    },
+    {
+        "table":  "invitations",
+        "column":  "role",
+        "status":  401,
+        "missing":  false,
+        "error":  "{\"code\":\"42501\",\"details\":null,\"hint\":\"Grant the required privileges to the current role with: GRANT SELECT ON public.in"
+    },
+    {
+        "table":  "invitations",
+        "column":  "institution_id",
+        "status":  401,
+        "missing":  false,
+        "error":  "{\"code\":\"42501\",\"details\":null,\"hint\":\"Grant the required privileges to the current role with: GRANT SELECT ON public.in"
+    },
+    {
+        "table":  "invitations",
+        "column":  "status",
+        "status":  401,
+        "missing":  false,
+        "error":  "{\"code\":\"42501\",\"details\":null,\"hint\":\"Grant the required privileges to the current role with: GRANT SELECT ON public.in"
+    },
+    {
+        "table":  "invitations",
+        "column":  "delivery_method",
+        "status":  401,
+        "missing":  false,
+        "error":  "{\"code\":\"42501\",\"details\":null,\"hint\":\"Grant the required privileges to the current role with: GRANT SELECT ON public.in"
+    },
+    {
+        "table":  "invitations",
+        "column":  "expires_at",
+        "status":  401,
+        "missing":  false,
+        "error":  "{\"code\":\"42501\",\"details\":null,\"hint\":\"Grant the required privileges to the current role with: GRANT SELECT ON public.in"
+    },
+    {
+        "table":  "invitations",
+        "column":  "created_at",
+        "status":  401,
+        "missing":  false,
+        "error":  "{\"code\":\"42501\",\"details\":null,\"hint\":\"Grant the required privileges to the current role with: GRANT SELECT ON public.in"
+    },
+    {
+        "table":  "invitations",
+        "column":  "updated_at",
+        "status":  401,
+        "missing":  false,
+        "error":  "{\"code\":\"42501\",\"details\":null,\"hint\":\"Grant the required privileges to the current role with: GRANT SELECT ON public.in"
+    },
+    {
+        "table":  "messages",
+        "column":  "id",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "messages",
+        "column":  "conversation_id",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "messages",
+        "column":  "sender_id",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "messages",
+        "column":  "institution_id",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "messages",
+        "column":  "body",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "messages",
+        "column":  "message_type",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "messages",
+        "column":  "media_path",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "messages",
+        "column":  "created_at",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "messages",
+        "column":  "read_at",
+        "status":  400,
+        "missing":  true,
+        "error":  "{\"code\":\"42703\",\"details\":null,\"hint\":\"Perhaps you meant to reference the column \\\"messages.created_at\\\".\",\"message\":\"co"
+    },
+    {
+        "table":  "coach_notebooks",
+        "column":  "id",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "coach_notebooks",
+        "column":  "institution_id",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "coach_notebooks",
+        "column":  "coach_id",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "coach_notebooks",
+        "column":  "title",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "coach_notebooks",
+        "column":  "body",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "coach_notebooks",
+        "column":  "entry_date",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "coach_notebooks",
+        "column":  "created_at",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "coach_notebooks",
+        "column":  "updated_at",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "profiles",
+        "column":  "id",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "profiles",
+        "column":  "email",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "profiles",
+        "column":  "full_name",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "profiles",
+        "column":  "role",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "profiles",
+        "column":  "institution_id",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "profiles",
+        "column":  "account_status",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "profiles",
+        "column":  "preferred_language",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "profiles",
+        "column":  "avatar_path",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "profiles",
+        "column":  "phone",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "profiles",
+        "column":  "approved_by",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "profiles",
+        "column":  "approved_at",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "profiles",
+        "column":  "created_at",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "profiles",
+        "column":  "updated_at",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "report_exports",
+        "column":  "id",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "report_exports",
+        "column":  "institution_id",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "report_exports",
+        "column":  "report_id",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "report_exports",
+        "column":  "exported_by",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "report_exports",
+        "column":  "export_type",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "report_exports",
+        "column":  "exported_at",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "report_exports",
+        "column":  "file_name",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "report_exports",
+        "column":  "file_path",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "conversations",
+        "column":  "id",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "conversations",
+        "column":  "institution_id",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "conversations",
+        "column":  "title",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "conversations",
+        "column":  "conversation_type",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "conversations",
+        "column":  "created_by",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "conversations",
+        "column":  "created_at",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "conversations",
+        "column":  "updated_at",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "report_templates",
+        "column":  "id",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "report_templates",
+        "column":  "institution_id",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "report_templates",
+        "column":  "file_name",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "report_templates",
+        "column":  "file_path",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "report_templates",
+        "column":  "version",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "report_templates",
+        "column":  "is_current",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "report_templates",
+        "column":  "created_at",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "report_templates",
+        "column":  "updated_at",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "student_notes",
+        "column":  "id",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "student_notes",
+        "column":  "institution_id",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "student_notes",
+        "column":  "student_id",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "student_notes",
+        "column":  "author_id",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "student_notes",
+        "column":  "note_type",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "student_notes",
+        "column":  "body",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "student_notes",
+        "column":  "created_at",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "student_notes",
+        "column":  "updated_at",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "notifications",
+        "column":  "id",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "notifications",
+        "column":  "recipient_id",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "notifications",
+        "column":  "title",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "notifications",
+        "column":  "body",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "notifications",
+        "column":  "notification_type",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "notifications",
+        "column":  "read_at",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "notifications",
+        "column":  "created_at",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "conversation_members",
+        "column":  "conversation_id",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "conversation_members",
+        "column":  "profile_id",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "conversation_members",
+        "column":  "id",
+        "status":  400,
+        "missing":  true,
+        "error":  "{\"code\":\"42703\",\"details\":null,\"hint\":null,\"message\":\"column conversation_members.id does not exist\"}"
+    },
+    {
+        "table":  "classes",
+        "column":  "id",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "classes",
+        "column":  "institution_id",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "classes",
+        "column":  "name",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "classes",
+        "column":  "academic_year",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "classes",
+        "column":  "description",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "classes",
+        "column":  "created_at",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "classes",
+        "column":  "updated_at",
+        "status":  400,
+        "missing":  true,
+        "error":  "{\"code\":\"42703\",\"details\":null,\"hint\":\"Perhaps you meant to reference the column \\\"classes.created_at\\\".\",\"message\":\"col"
+    },
+    {
+        "table":  "absence_followups",
+        "column":  "id",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "absence_followups",
+        "column":  "institution_id",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "absence_followups",
+        "column":  "student_id",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "absence_followups",
+        "column":  "streak",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "absence_followups",
+        "column":  "status",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "absence_followups",
+        "column":  "last_follow_up_at",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "absence_followups",
+        "column":  "absences",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "absence_followups",
+        "column":  "created_at",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "absence_followups",
+        "column":  "updated_at",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "absence_followups",
+        "column":  "streak_start",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "absence_followups",
+        "column":  "streak_end",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "admin_notices",
+        "column":  "id",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "admin_notices",
+        "column":  "institution_id",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "admin_notices",
+        "column":  "title",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "admin_notices",
+        "column":  "body",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "admin_notices",
+        "column":  "created_by",
+        "status":  400,
+        "missing":  true,
+        "error":  "{\"code\":\"42703\",\"details\":null,\"hint\":\"Perhaps you meant to reference the column \\\"admin_notices.created_at\\\".\",\"message"
+    },
+    {
+        "table":  "admin_notices",
+        "column":  "created_at",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "admin_notices",
+        "column":  "updated_at",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "otp_codes",
+        "column":  "id",
+        "status":  401,
+        "missing":  false,
+        "error":  "{\"code\":\"42501\",\"details\":null,\"hint\":\"Grant the required privileges to the current role with: GRANT SELECT ON public.ot"
+    },
+    {
+        "table":  "otp_codes",
+        "column":  "invitation_id",
+        "status":  401,
+        "missing":  false,
+        "error":  "{\"code\":\"42501\",\"details\":null,\"hint\":\"Grant the required privileges to the current role with: GRANT SELECT ON public.ot"
+    },
+    {
+        "table":  "otp_codes",
+        "column":  "code_hash",
+        "status":  401,
+        "missing":  false,
+        "error":  "{\"code\":\"42501\",\"details\":null,\"hint\":\"Grant the required privileges to the current role with: GRANT SELECT ON public.ot"
+    },
+    {
+        "table":  "otp_codes",
+        "column":  "expires_at",
+        "status":  401,
+        "missing":  false,
+        "error":  "{\"code\":\"42501\",\"details\":null,\"hint\":\"Grant the required privileges to the current role with: GRANT SELECT ON public.ot"
+    },
+    {
+        "table":  "otp_codes",
+        "column":  "used_at",
+        "status":  401,
+        "missing":  false,
+        "error":  "{\"code\":\"42501\",\"details\":null,\"hint\":\"Grant the required privileges to the current role with: GRANT SELECT ON public.ot"
+    },
+    {
+        "table":  "otp_codes",
+        "column":  "created_at",
+        "status":  401,
+        "missing":  false,
+        "error":  "{\"code\":\"42501\",\"details\":null,\"hint\":\"Grant the required privileges to the current role with: GRANT SELECT ON public.ot"
+    },
+    {
+        "table":  "daily_reports",
+        "column":  "id",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "daily_reports",
+        "column":  "institution_id",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "daily_reports",
+        "column":  "coach_id",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "daily_reports",
+        "column":  "coach_name_snapshot",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "daily_reports",
+        "column":  "report_date",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "daily_reports",
+        "column":  "present_count",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "daily_reports",
+        "column":  "absent_count",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "daily_reports",
+        "column":  "late_count",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "daily_reports",
+        "column":  "injured_count",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "daily_reports",
+        "column":  "excused_count",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "daily_reports",
+        "column":  "notes",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "daily_reports",
+        "column":  "status",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "daily_reports",
+        "column":  "is_finalized",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "daily_reports",
+        "column":  "finalized_at",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "daily_reports",
+        "column":  "shift_id",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "daily_reports",
+        "column":  "shift_start",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "daily_reports",
+        "column":  "shift_end",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "daily_reports",
+        "column":  "reviewed_by",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "daily_reports",
+        "column":  "reviewed_at",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "daily_reports",
+        "column":  "created_at",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "daily_reports",
+        "column":  "updated_at",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "attendance_records",
+        "column":  "id",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "attendance_records",
+        "column":  "institution_id",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "attendance_records",
+        "column":  "student_id",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "attendance_records",
+        "column":  "coach_id",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "attendance_records",
+        "column":  "session_date",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "attendance_records",
+        "column":  "session_key",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "attendance_records",
+        "column":  "status",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "attendance_records",
+        "column":  "reason",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "attendance_records",
+        "column":  "created_at",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "attendance_records",
+        "column":  "updated_at",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "coach_shifts",
+        "column":  "id",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "coach_shifts",
+        "column":  "institution_id",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "coach_shifts",
+        "column":  "coach_id",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "coach_shifts",
+        "column":  "started_at",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "coach_shifts",
+        "column":  "ended_at",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "coach_shifts",
+        "column":  "notes",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "coach_shifts",
+        "column":  "created_at",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "coach_shifts",
+        "column":  "updated_at",
+        "status":  400,
+        "missing":  true,
+        "error":  "{\"code\":\"42703\",\"details\":null,\"hint\":\"Perhaps you meant to reference the column \\\"coach_shifts.created_at\\\".\",\"message\""
+    },
+    {
+        "table":  "message_reads",
+        "column":  "conversation_id",
+        "status":  400,
+        "missing":  true,
+        "error":  "{\"code\":\"42703\",\"details\":null,\"hint\":null,\"message\":\"column message_reads.conversation_id does not exist\"}"
+    },
+    {
+        "table":  "message_reads",
+        "column":  "profile_id",
+        "status":  400,
+        "missing":  true,
+        "error":  "{\"code\":\"42703\",\"details\":null,\"hint\":null,\"message\":\"column message_reads.profile_id does not exist\"}"
+    },
+    {
+        "table":  "message_reads",
+        "column":  "id",
+        "status":  400,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "message_reads",
+        "column":  "last_read_at",
+        "status":  400,
+        "missing":  true,
+        "error":  "{\"code\":\"42703\",\"details\":null,\"hint\":null,\"message\":\"column message_reads.last_read_at does not exist\"}"
+    },
+    {
+        "table":  "message_reads",
+        "column":  "read_at",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "message_reads",
+        "column":  "updated_at",
+        "status":  400,
+        "missing":  true,
+        "error":  "{\"code\":\"42703\",\"details\":null,\"hint\":null,\"message\":\"column message_reads.updated_at does not exist\"}"
+    },
+    {
+        "table":  "institutions",
+        "column":  "id",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "institutions",
+        "column":  "name",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "institutions",
+        "column":  "contact_email",
+        "status":  400,
+        "missing":  true,
+        "error":  "{\"code\":\"42703\",\"details\":null,\"hint\":null,\"message\":\"column institutions.contact_email does not exist\"}"
+    },
+    {
+        "table":  "institutions",
+        "column":  "phone",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "institutions",
+        "column":  "address",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "institutions",
+        "column":  "default_language",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "institutions",
+        "column":  "logo_path",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "institutions",
+        "column":  "logo_url",
+        "status":  400,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "institutions",
+        "column":  "count_permissions_as_absence",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "institutions",
+        "column":  "is_active",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "institutions",
+        "column":  "created_at",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "institutions",
+        "column":  "updated_at",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "student_medical_records",
+        "column":  "id",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "student_medical_records",
+        "column":  "institution_id",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "student_medical_records",
+        "column":  "student_id",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "student_medical_records",
+        "column":  "details",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "student_medical_records",
+        "column":  "created_at",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "student_medical_records",
+        "column":  "updated_at",
+        "status":  400,
+        "missing":  true,
+        "error":  "{\"code\":\"42703\",\"details\":null,\"hint\":\"Perhaps you meant to reference the column \\\"student_medical_records.created_at\\\"."
+    },
+    {
+        "table":  "audit_logs",
+        "column":  "id",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "audit_logs",
+        "column":  "institution_id",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "audit_logs",
+        "column":  "actor_id",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "audit_logs",
+        "column":  "action",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "audit_logs",
+        "column":  "table_name",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "audit_logs",
+        "column":  "record_id",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "audit_logs",
+        "column":  "old_data",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "audit_logs",
+        "column":  "new_data",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    },
+    {
+        "table":  "audit_logs",
+        "column":  "created_at",
+        "status":  200,
+        "missing":  false,
+        "error":  ""
+    }
+]

@@ -60,6 +60,7 @@ type Person = {
   created_at?: string
 }
 type AccountRow = Profile & {
+  avatar_path?: string | null
   created_at?: string
   approved_by?: string | null
   approved_at?: string | null
@@ -360,6 +361,24 @@ export default function App() {
     void loadProfile(session.user.id).finally(() => setBusy(false))
   }
 
+  const [myAvatarPath, setMyAvatarPath] = useState<string | null>(null)
+  const [myAvatarSignedUrl, setMyAvatarSignedUrl] = useState<string | null>(null)
+  const [myAvatarBusy, setMyAvatarBusy] = useState(false)
+
+  useEffect(() => {
+    let alive = true
+    async function resolveMyAvatar() {
+      const path = (isLocalMode ? localProfile : profile)?.avatar_path || null
+      setMyAvatarPath(path)
+      setMyAvatarSignedUrl(null)
+      if (!path) return
+      const { data } = await supabase.storage.from('trainer-avatars').createSignedUrl(path, 3600)
+      if (alive) setMyAvatarSignedUrl(data?.signedUrl || null)
+    }
+    void resolveMyAvatar()
+    return () => { alive = false }
+  }, [isLocalMode, profile?.avatar_path, profile?.id, localProfile?.avatar_path, localProfile?.id])
+
   async function uploadMyAvatar(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
@@ -396,27 +415,6 @@ export default function App() {
     notify(t('savedOk'))
   }
 
-  const [myAvatarPath, setMyAvatarPath] = useState<string | null>(null)
-  const [myAvatarSignedUrl, setMyAvatarSignedUrl] = useState<string | null>(null)
-  const [myAvatarBusy, setMyAvatarBusy] = useState(false)
-
-  // Resolve the signed storage URL for the signed-in user's avatar so the
-  // sidebar shows the real photo instead of initials after a reload. These
-  // hooks sit above the early returns on purpose so the hook order stays stable.
-  useEffect(() => {
-    let alive = true
-    async function resolveMyAvatar() {
-      const path = (isLocalMode ? localProfile : profile)?.avatar_path || null
-      setMyAvatarPath(path)
-      setMyAvatarSignedUrl(null)
-      if (!path) return
-      const { data } = await supabase.storage.from('trainer-avatars').createSignedUrl(path, 3600)
-      if (alive) setMyAvatarSignedUrl(data?.signedUrl || null)
-    }
-    void resolveMyAvatar()
-    return () => { alive = false }
-  }, [isLocalMode, profile?.avatar_path, profile?.id, localProfile?.avatar_path, localProfile?.id])
-
   if (passwordSetup) {
     return (
       <RecoveryScreen
@@ -429,7 +427,7 @@ export default function App() {
   }
 
   if (busy) {
-    return <div className="loading-screen"><div className="brand-mark">T</div><p>{t('loading')}</p></div>
+    return <div className="loading-screen"><img src="/icons/brand-emblem.png" alt="T" className="brand-mark" style={{objectFit:"cover",padding:0}} /><p>{t('loading')}</p></div>
   }
 
   if (!isLocalMode) {
@@ -450,7 +448,6 @@ export default function App() {
   }
 
   const viewProfile: Profile | null = isLocalMode ? localProfile : profile
-
   if (!viewProfile) {
     return (
       <GateScreen
@@ -485,6 +482,7 @@ export default function App() {
           ['/team', UserPlus, 'team'] as [string, LucideIcon, string],
           ['/medical', HeartPulse, 'medical'] as [string, LucideIcon, string],
           ['/settings', SettingsIcon, 'settings'] as [string, LucideIcon, string],
+          ['/templates', FileUp, 'templates'] as [string, LucideIcon, string],
           ['/audit', History, 'audit'] as [string, LucideIcon, string],
         ] : []),
       ]
@@ -496,7 +494,7 @@ export default function App() {
           {menu ? <X /> : <Menu />}
         </button>
         <div className="brand">
-          <div className="brand-mark">T</div>
+          <img src="/icons/brand-emblem.png" alt="T" className="brand-mark" style={{objectFit:'cover',padding:0}} />
           <div className="app-name">
             <span className="arabic">{t('app')}</span>
             <span className="latin">{t('subtitle')}</span>
@@ -565,6 +563,7 @@ export default function App() {
             <Route path="/team" element={admin && !owner ? <Team profile={viewProfile} t={t} /> : <Denied t={t} />} />
             <Route path="/medical" element={admin && !owner ? <Medical profile={viewProfile} t={t} /> : <Denied t={t} />} />
             <Route path="/settings" element={admin && !owner ? <InstitutionSettings profile={viewProfile} t={t} /> : <Denied t={t} />} />
+            <Route path="/templates" element={admin && !owner ? <ReportTemplates profile={viewProfile} t={t} /> : <Denied t={t} />} />
             <Route path="/audit" element={admin ? <Audit t={t} /> : <Denied t={t} />} />
             <Route path="*" element={<Dashboard profile={viewProfile} t={t} />} />
           </Routes>
@@ -600,7 +599,7 @@ function RecoveryScreen({ mode, t, onDone, onSignOut }: {
     <div className="login-wrap">
       <section className="login-card">
         <div className="login-brand">
-          <div className="brand-mark big">T</div>
+          <img src="/icons/brand-emblem.png" alt="T" className="brand-mark big" style={{objectFit:"cover",padding:0}} />
           <h1 className="app-name">
             <span className="arabic">{t('app')}</span>
             <span className="latin">{t('subtitle')}</span>
@@ -661,7 +660,7 @@ function Login({ lang, setLang, t }: { lang: Lang; setLang: (v: Lang) => void; t
     <div className="login-wrap">
       <section className="login-card">
         <div className="login-brand">
-          <div className="brand-mark big">T</div>
+          <img src="/icons/brand-emblem.png" alt="T" className="brand-mark big" style={{objectFit:"cover",padding:0}} />
           <h1 className="app-name" style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '16px' }}>
             <span className="arabic" style={{ fontFamily: 'var(--arabic-font),system-ui,sans-serif', fontSize: '17px', fontWeight: 600, letterSpacing: '.01em', color: '#f5f5f5' }}>{t('app')}</span>
             <span className="latin" style={{ fontFamily: 'var(--latin-font),system-ui,sans-serif', fontSize: '11px', color: '#a8c6c2' }}>{t('subtitle')}</span>
@@ -979,7 +978,7 @@ function GateScreen({ state, t, onRetry, onSignOut, onAccepted }: {
     <div className="login-wrap">
       <section className="login-card">
         <div className="login-brand">
-          <div className="brand-mark big">T</div>
+          <img src="/icons/brand-emblem.png" alt="T" className="brand-mark big" style={{objectFit:"cover",padding:0}} />
           <h1 className="app-name">
             <span className="arabic">{t('app')}</span>
             <span className="latin">{t('subtitle')}</span>
@@ -1566,6 +1565,11 @@ function Reports({ profile, t }: { profile: Profile; t: T }) {
   const [reportDate, setReportDate] = useState(localDate())
   const [draftId, setDraftId] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [students, setStudents] = useState<{ id: string; full_name: string }[]>([])
+  const [details, setDetails] = useState<{ student_id: string; student_name: string; observation: string; notes: string }[]>([])
+  const [detailStudent, setDetailStudent] = useState('')
+  const [detailObs, setDetailObs] = useState('')
+  const [detailNotes, setDetailNotes] = useState('')
   const admin = ['manager', 'admin'].includes(profile.role)
 
   async function load() {
@@ -1580,7 +1584,12 @@ function Reports({ profile, t }: { profile: Profile; t: T }) {
     setLoading(false)
   }
 
-  useEffect(() => { void load() }, [profile.id, profile.role, profile.institution_id])
+  async function loadStudents() {
+    if (!isConfigured || !profile.institution_id) return
+    const { data } = await supabase.from('students').select('id,full_name').eq('institution_id', profile.institution_id).order('full_name')
+    setStudents((data ?? []) as { id: string; full_name: string }[])
+  }
+  useEffect(() => { void load(); void loadStudents() }, [profile.id, profile.role, profile.institution_id])
 
   useEffect(() => {
     if (!show) return
@@ -1606,6 +1615,7 @@ function Reports({ profile, t }: { profile: Profile; t: T }) {
     setReportDate(today)
     setDraftId(null)
     setNotes('')
+    setDetails([])
     setCounts(emptyCounts())
     let query = supabase.from('attendance_records').select('status').eq('session_date', today).eq('coach_id', profile.id)
     if (profile.institution_id) query = query.eq('institution_id', profile.institution_id)
@@ -1633,8 +1643,28 @@ function Reports({ profile, t }: { profile: Profile; t: T }) {
       injured_count: row.injured_count,
       excused_count: row.excused_count,
     })
+    setDetails([])
+    if (isConfigured) {
+      void supabase.from('report_details').select('student_id,student_name_snapshot,observation,notes')
+        .eq('report_id', row.id).then(({ data }) => {
+          if (data) setDetails((data as { student_id: string; student_name_snapshot: string; observation: string; notes: string }[]).map(d => ({
+            student_id: d.student_id || '',
+            student_name: d.student_name_snapshot || '',
+            observation: d.observation || '',
+            notes: d.notes || '',
+          })))
+        })
+    }
     setShow(true)
   }
+
+  function addDetail() {
+    if (!detailStudent) return
+    const st = students.find(s => s.id === detailStudent)
+    setDetails(prev => [...prev, { student_id: detailStudent, student_name: st?.full_name || '', observation: detailObs, notes: detailNotes }])
+    setDetailStudent(''); setDetailObs(''); setDetailNotes('')
+  }
+  function removeDetail(idx: number) { setDetails(prev => prev.filter((_, i) => i !== idx)) }
 
   async function latestShift() {
     if (!isConfigured) return null
@@ -1705,9 +1735,23 @@ function Reports({ profile, t }: { profile: Profile; t: T }) {
     }
     const result = draftId
       ? await supabase.from('daily_reports').update(payload).eq('id', draftId).eq('coach_id', profile.id)
-      : await supabase.from('daily_reports').insert(payload)
+      : await supabase.from('daily_reports').insert(payload).select('id').single()
     setBusy(false)
     if (result.error) { notify(result.error.message); return }
+    const savedId = draftId || (result.data as { id?: string } | null)?.id
+    if (savedId && details.length && isConfigured) {
+      // replace details for this report (best-effort, non-blocking)
+      await supabase.from('report_details').delete().eq('report_id', savedId)
+      await supabase.from('report_details').insert(details.map(d => ({
+        report_id: savedId,
+        institution_id: profile.institution_id,
+        student_id: d.student_id || null,
+        student_name_snapshot: d.student_name,
+        observation: d.observation || null,
+        notes: d.notes || null,
+        created_by: profile.id,
+      })))
+    }
     clearReportDraft(profile.id)
     notify(t('savedOk'))
     setShow(false)
@@ -1761,12 +1805,21 @@ function Reports({ profile, t }: { profile: Profile; t: T }) {
       a.click()
       a.remove()
       URL.revokeObjectURL(url)
+      // log export (best-effort, non-blocking)
+      if (profile.institution_id) {
+        void supabase.from('report_exports').insert({
+          institution_id: profile.institution_id,
+          report_id: row.id,
+          exported_by: profile.id,
+          export_type: 'single',
+          file_name: a.download,
+        })
+      }
       notify(t('exportedWord'))
     } catch {
       notify(t('errorGeneric'))
     }
   }
-
   return (
     <>
       <Heading
@@ -1847,6 +1900,27 @@ function Reports({ profile, t }: { profile: Profile; t: T }) {
               <textarea rows={4} value={notes} onChange={(e) => setNotes(e.target.value)} />
             </label>
             <small className="muted">{t('reportLocked')}</small>
+            <label>{t('studentNotes')}
+              <div style={{display:'grid',gap:6,marginTop:6}}>
+                <select value={detailStudent} onChange={e => setDetailStudent(e.target.value)}>
+                  <option value="">—</option>
+                  {students.map(s => <option key={s.id} value={s.id}>{s.full_name}</option>)}
+                </select>
+                <input placeholder={t('notes')} value={detailObs} onChange={e => setDetailObs(e.target.value)} />
+                <textarea rows={2} placeholder={t('notes')} value={detailNotes} onChange={e => setDetailNotes(e.target.value)} />
+                <button type="button" className="secondary" onClick={addDetail} disabled={!detailStudent}>{t('addNote')}</button>
+              </div>
+            </label>
+            {details.length > 0 && (
+              <div className="member-list">
+                {details.map((d, i) => (
+                  <div className="student-row" key={i}>
+                    <div className="grow"><b>{d.student_name}</b><small>{d.observation}</small><small>{d.notes}</small></div>
+                    <button className="danger" type="button" onClick={() => removeDetail(i)}><Trash2 size={14} /></button>
+                  </div>
+                ))}
+              </div>
+            )}
             <div className="modal-actions">
               <button type="button" className="secondary" onClick={() => setShow(false)}>{t('cancel')}</button>
               <button type="button" className="secondary" disabled={busy} onClick={saveDraft}>
@@ -2594,31 +2668,25 @@ function OwnerAccountRow({ person, institutions, t, onChanged }: {
   const [role, setRole] = useState<AccountRole>(initialRole)
   const [institutionId, setInstitutionId] = useState(person.institution_id ?? '')
   const [busy, setBusy] = useState(false)
-  const [avatarPath, setAvatarPath] = useState<string | null>(null)
-  const [avatarSignedUrl, setAvatarSignedUrl] = useState<string | null>(null)
+  const [avatarPath, setAvatarPath] = useState(person.avatar_path || '')
+  const [avatarUrl, setAvatarUrl] = useState('')
   const isOwnerAccount = person.role === 'owner'
   const status = person.account_status || 'pending'
 
   useEffect(() => {
     setRole(isAccountRole(person.role) ? person.role : 'coach')
     setInstitutionId(person.institution_id ?? '')
-  }, [person.role, person.institution_id, person.id])
+    setAvatarPath(person.avatar_path || '')
+  }, [person.role, person.institution_id, person.avatar_path])
 
-  // Resolve a fresh signed URL whenever the avatar path changes so a stored
-  // avatar renders immediately after a reload instead of showing initials.
   useEffect(() => {
     let alive = true
-    async function resolveAvatar() {
-      const path = person.avatar_path || null
-      setAvatarPath(path)
-      setAvatarSignedUrl(null)
-      if (!path) return
-      const { data } = await supabase.storage.from('trainer-avatars').createSignedUrl(path, 3600)
-      if (alive) setAvatarSignedUrl(data?.signedUrl || null)
-    }
-    void resolveAvatar()
+    if (!isConfigured || !avatarPath) { setAvatarUrl(''); return }
+    void supabase.storage.from('trainer-avatars').createSignedUrl(avatarPath, 3600).then(({ data }) => {
+      if (alive) setAvatarUrl(data?.signedUrl || '')
+    })
     return () => { alive = false }
-  }, [person.avatar_path, person.id])
+  }, [avatarPath])
 
   async function run(action: 'approve' | 'reject' | 'suspend' | 'reactivate' | 'update') {
     if (busy || isOwnerAccount) return
@@ -2645,7 +2713,6 @@ function OwnerAccountRow({ person, institutions, t, onChanged }: {
     const file = e.target.files?.[0]
     if (!file) return
     if (!/image\/(png|jpe?g|webp)/.test(file.type)) { notify(t('invalidImage')); return }
-    if (file.size > 2 * 1024 * 1024) { notify(t('imageTooLarge')); return }
     setBusy(true)
     const extension = file.name.split('.').pop() || 'png'
     const avatar_path = `${person.institution_id}/${person.id}/avatar-${Date.now()}.${extension}`
@@ -2653,9 +2720,6 @@ function OwnerAccountRow({ person, institutions, t, onChanged }: {
       .from('trainer-avatars')
       .upload(avatar_path, file, { upsert: false, contentType: file.type })
     if (uploadError) { notify(uploadError.message); setBusy(false); return }
-    const { data } = await supabase.storage.from('trainer-avatars').createSignedUrl(avatar_path, 3600)
-    if (!data?.signedUrl) { notify(t('errorGeneric')); setBusy(false); return }
-    setAvatarSignedUrl(data.signedUrl)
     setAvatarPath(avatar_path)
     const { error: updateError } = await supabase.from('profiles').update({ avatar_path }).eq('id', person.id)
     if (updateError) { notify(updateError.message); setBusy(false); return }
@@ -2667,17 +2731,25 @@ function OwnerAccountRow({ person, institutions, t, onChanged }: {
   return (
     <div className="student-row">
       <div className="avatar">
-        {avatarPath ? (
-          <img src={avatarSignedUrl || avatarPath || ''} alt={person.full_name || 'avatar'} className="avatar-img" />
+        {avatarUrl ? (
+          <img src={avatarUrl} alt={person.full_name || 'avatar'} className="avatar-img" />
         ) : (
           <span>{(person.full_name || person.email || '?').slice(0, 1)}</span>
         )}
-        {avatarPath && (
-          <button type="button" className="avatar-upload-btn" onClick={() => document.getElementById(`avatar-upload-${person.id}`)?.click()}>
-            {t('changeAvatar')}
-          </button>
+        {person.institution_id && (
+          <>
+            <input
+              id={`avatar-upload-${person.id}`}
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              style={{ display: 'none' }}
+              onChange={(e) => { void uploadAvatar(e) }}
+            />
+            <button type="button" className="avatar-upload-btn" disabled={busy} onClick={() => document.getElementById(`avatar-upload-${person.id}`)?.click()}>
+              {t('changeAvatar')}
+            </button>
+          </>
         )}
-        <input type="file" accept="image/png,image/jpeg,image/webp" id={`avatar-upload-${person.id}`} onChange={uploadAvatar} hidden />
       </div>
       <div className="grow">
         <b>{person.full_name || person.email || '—'}</b>
@@ -3680,5 +3752,216 @@ function Modal({ title, close, children, closeLabel }: {
         {children}
       </section>
     </div>
+  )
+}
+
+
+function ReportTemplates({ profile, t }: { profile: Profile; t: T }) {
+  const [items, setItems] = useState<{
+    id: string; institution_id: string; name: string | null; file_name: string;
+    file_path: string; version: number; is_current: boolean; is_archived: boolean;
+    description: string | null; instructions: string | null; created_at: string;
+  }[]>([])
+  const [loading, setLoading] = useState(true)
+  const [show, setShow] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [name, setName] = useState('')
+  const [description, setDescription] = useState('')
+  const [instructions, setInstructions] = useState('')
+  const [file, setFile] = useState<File | null>(null)
+  const [editing, setEditing] = useState<string | null>(null)
+
+  async function load() {
+    setLoading(true)
+    if (!isConfigured || !profile.institution_id) { setLoading(false); return }
+    const { data, error } = await supabase
+      .from('report_templates')
+      .select('id,institution_id,name,file_name,file_path,version,is_current,is_archived,description,instructions,created_at')
+      .eq('institution_id', profile.institution_id)
+      .order('created_at', { ascending: false })
+    if (error) notify(error.message)
+    setItems((data ?? []) as typeof items)
+    setLoading(false)
+  }
+
+  useEffect(() => { void load() }, [profile.institution_id])
+
+  function reset() { setName(''); setDescription(''); setInstructions(''); setFile(null); setEditing(null) }
+
+  async function save(e: FormEvent) {
+    e.preventDefault()
+    if (!isConfigured || !profile.institution_id) { notify(t('configMissing')); return }
+    if (!name.trim()) { notify(t('templateName')); return }
+    if (!file && !editing) { notify(t('selectDocx')); return }
+    setBusy(true)
+    const currentMax = items.reduce((m, x) => Math.max(m, x.version || 1), 0)
+    const nextVersion = editing ? (items.find(x => x.id === editing)?.version || 1) : currentMax + 1
+    let filePath: string | null = null
+    if (file) {
+      const ext = (file.name.split('.').pop() || '').toLowerCase()
+      if (ext !== 'docx') { notify(t('invalidImage')); setBusy(false); return }
+      const id = crypto.randomUUID()
+      filePath = profile.institution_id + '/report-templates/' + id + '/v' + nextVersion + '/' + file.name
+      const { error: upErr } = await supabase.storage.from('trainer-report-templates').upload(filePath, file, { upsert: false, contentType: file.type })
+      if (upErr) { notify(upErr.message); setBusy(false); return }
+    }
+    if (editing) {
+      const { error } = await supabase.from('report_templates').update({
+        name: name.trim(), description: description.trim() || null,
+        instructions: instructions.trim() || null,
+      }).eq('id', editing).eq('institution_id', profile.institution_id)
+      setBusy(false)
+      if (error) { notify(error.message); return }
+      notify(t('templateUpdated'))
+    } else {
+      const { error } = await supabase.from('report_templates').insert({
+        institution_id: profile.institution_id,
+        name: name.trim(),
+        file_name: file!.name,
+        file_path: filePath!,
+        version: nextVersion,
+        is_current: true,
+        description: description.trim() || null,
+        instructions: instructions.trim() || null,
+        is_archived: false,
+      })
+      if (!error) {
+        await supabase.from('report_templates').update({ is_current: false })
+          .eq('institution_id', profile.institution_id).neq('file_path', filePath!)
+      }
+      setBusy(false)
+      if (error) { notify(error.message); return }
+      notify(t('templateUploaded'))
+    }
+    reset()
+    setShow(false)
+    await load()
+  }
+
+  async function toggleActive(row: typeof items[number]) {
+    if (!isConfigured) return
+    setBusy(true)
+    if (!row.is_current) {
+      await supabase.from('report_templates').update({ is_current: false })
+        .eq('institution_id', profile.institution_id)
+      await supabase.from('report_templates').update({ is_current: true }).eq('id', row.id)
+    } else {
+      await supabase.from('report_templates').update({ is_current: false }).eq('id', row.id)
+    }
+    setBusy(false)
+    await load()
+  }
+
+  async function archive(row: typeof items[number]) {
+    if (!window.confirm(t('archive'))) return
+    setBusy(true)
+    const { error } = await supabase.from('report_templates').update({ is_archived: true, is_current: false }).eq('id', row.id)
+    setBusy(false)
+    if (error) { notify(error.message); return }
+    notify(t('templateArchived'))
+    await load()
+  }
+
+  function startEdit(row: typeof items[number]) {
+    setEditing(row.id)
+    setName(row.name || row.file_name)
+    setDescription(row.description || '')
+    setInstructions(row.instructions || '')
+    setFile(null)
+    setShow(true)
+  }
+
+  const active = items.filter(x => !x.is_archived)
+  const archived = items.filter(x => x.is_archived)
+
+  return (
+    <>
+      <Heading title={t('templates')} action={
+        <button className="primary action-btn" onClick={() => { reset(); setShow(true) }}>
+          <Plus size={18} /> {t('uploadTemplate')}
+        </button>
+      } />
+      {loading ? <Empty t={t} /> : items.length === 0 ? <Empty t={t} /> : (
+        <section className="panel">
+          <h3>{t('templates')}</h3>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>{t('templateName')}</th>
+                  <th>{t('templateVersion')}</th>
+                  <th>{t('status')}</th>
+                  <th>{t('actions')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {active.map(row => (
+                  <tr key={row.id}>
+                    <td>
+                      <b>{row.name || row.file_name}</b>
+                      {row.description && <small className="muted" style={{display:'block'}}>{row.description}</small>}
+                      {row.instructions && <small className="muted" style={{display:'block'}}>{row.instructions}</small>}
+                    </td>
+                    <td>v{row.version}</td>
+                    <td><span className={"pill " + (row.is_current ? 'success' : 'warning')}>{row.is_current ? t('active') : t('inactive')}</span></td>
+                    <td>
+                      <button className="secondary" onClick={() => startEdit(row)}>{t('edit')}</button>
+                      <button className="secondary" onClick={() => { void toggleActive(row) }} disabled={busy}>
+                        {row.is_current ? t('deactivateTemplate') : t('activateTemplate')}
+                      </button>
+                      <button className="danger" onClick={() => { void archive(row) }} disabled={busy}>{t('archiveTemplate')}</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {archived.length > 0 && (
+            <>
+              <h3 style={{marginTop:16}}>{t('versionHistory')}</h3>
+              <div className="table-wrap">
+                <table>
+                  <thead><tr><th>{t('templateName')}</th><th>{t('templateVersion')}</th><th>{t('status')}</th></tr></thead>
+                  <tbody>
+                    {archived.map(row => (
+                      <tr key={row.id}>
+                        <td>{row.name || row.file_name}</td>
+                        <td>v{row.version}</td>
+                        <td><span className="pill">{t('archived')}</span></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </section>
+      )}
+
+      {show && (
+        <Modal title={t('uploadTemplate')} close={() => { setShow(false); reset() }} closeLabel={t('close')}>
+          <form onSubmit={save}>
+            <label>{t('templateName')}
+              <input required value={name} onChange={e => setName(e.target.value)} />
+            </label>
+            <label>{t('templateDescription')}
+              <textarea rows={2} value={description} onChange={e => setDescription(e.target.value)} />
+            </label>
+            <label>{t('templateInstructions')}
+              <textarea rows={3} value={instructions} onChange={e => setInstructions(e.target.value)} />
+            </label>
+            {!editing && (
+              <label>{t('selectDocx')}
+                <input type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" onChange={e => setFile(e.target.files?.[0] ?? null)} />
+              </label>
+            )}
+            <div className="modal-actions">
+              <button type="button" className="secondary" onClick={() => { setShow(false); reset() }}>{t('cancel')}</button>
+              <button className="primary" disabled={busy}>{busy ? t('loading') : t('save')}</button>
+            </div>
+          </form>
+        </Modal>
+      )}
+    </>
   )
 }

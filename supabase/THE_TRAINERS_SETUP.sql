@@ -694,14 +694,18 @@ drop trigger if exists admin_notice_notify on public.admin_notices;
 create trigger admin_notice_notify after insert on public.admin_notices for each row when (new.is_published=true) execute function public.notify_new_notice();
 
 create or replace function public.notify_submitted_report() returns trigger language plpgsql security definer set search_path=public,pg_temp
-as $$ begin
- insert into public.notifications(institution_id,recipient_id,title,body,notification_type)
- select new.institution_id,p.id,'Daily report submitted',new.coach_name_snapshot||' submitted a report for '||new.report_date::text,'report'
- from public.profiles p where p.institution_id=new.institution_id and p.account_status='active' and p.role in ('manager','admin');
- return new;
-end $$;
+as $ begin
+  if (TG_OP = 'INSERT' and new.is_finalized = true)
+     or (TG_OP = 'UPDATE' and new.is_finalized = true
+         and coalesce(old.is_finalized, false) = false) then
+    insert into public.notifications(institution_id,recipient_id,title,body,notification_type)
+    select new.institution_id,p.id,'Daily report submitted',new.coach_name_snapshot||' submitted a report for '||new.report_date::text,'report'
+    from public.profiles p where p.institution_id=new.institution_id and p.account_status='active' and p.role in ('manager','admin');
+  end if;
+  return new;
+end $;
 drop trigger if exists daily_report_notify on public.daily_reports;
-create trigger daily_report_notify after insert on public.daily_reports for each row when (new.is_finalized=true) execute function public.notify_submitted_report();
+create trigger daily_report_notify after insert or update on public.daily_reports for each row when (new.is_finalized=true) execute function public.notify_submitted_report();
 
 -- Tell every other conversation member about a new message.
 create or replace function public.notify_new_message() returns trigger
